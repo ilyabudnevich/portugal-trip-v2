@@ -1,4 +1,5 @@
 import { flights, hotels, restaurants, itinerary } from './data/trip.js'
+import PackingList from './components/PackingList.jsx'
 import './App.css'
 
 function formatStatus(status) {
@@ -81,6 +82,8 @@ function App() {
       </section>
 
       <ol id="itinerary">{dayNodes}</ol>
+
+      <PackingList />
     </>
   )
 }
