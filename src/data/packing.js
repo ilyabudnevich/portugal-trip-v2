@@ -16,6 +16,18 @@ export const packingGroups = [
       { id: 'swim-shorts', name: 'Swim shorts' },
     ],
   },
-  { id: 'elina', name: 'Elina', items: [] },
-  { id: 'kids', name: 'Kids', items: [] },
+ {
+    id: 'elina',
+    name: 'Elina',
+    items: [
+      { id: 'passport', name: 'Passport' },
+    ],
+  },
+  {
+    id: 'kids',
+    name: 'Kids',
+    items: [
+      { id: 'passport', name: 'Passport' },
+    ],
+  },
 ]
