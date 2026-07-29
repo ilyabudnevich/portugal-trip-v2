@@ -9,20 +9,33 @@ function formatStatus(status) {
 function App() {
   const dayNodes = []
 
+  const cityClass = {
+    Lisbon: 'city-lisbon',
+    Algarve: 'city-algarve',
+    'In transit': 'city-transit',
+  }
+
   itinerary.forEach((day, index) => {
+    const density = day.events.length >= 2 ? 'day-busy' : 'day-light'
     dayNodes.push(
-      <li className="day-card" key={day.date}>
-        <div className="day-card-header">
-          <span className="day-date">
-            {day.weekday}, {day.date}
-          </span>
-          <span className="day-city">{day.city}</span>
+      <li
+        className={`day-card ${cityClass[day.city] ?? ''} ${density}`}
+        key={day.date}
+      >
+        <span className="day-index">{String(index + 1).padStart(2, '0')}</span>
+        <div className="day-body">
+          <div className="day-card-header">
+            <span className="day-date">
+              {day.weekday}, {day.date}
+            </span>
+            <span className="day-city">{day.city}</span>
+          </div>
+          <ul className="day-events">
+            {day.events.map((event) => (
+              <li key={event}>{event}</li>
+            ))}
+          </ul>
         </div>
-        <ul className="day-events">
-          {day.events.map((event) => (
-            <li key={event}>{event}</li>
-          ))}
-        </ul>
       </li>,
     )
 
@@ -53,35 +66,53 @@ function App() {
   return (
     <>
       <header id="trip-header">
-        <h1>Portugal 2026</h1>
-        <p>Aug 28 – Sep 6</p>
+        <p className="eyebrow">28 Aug – 6 Sep 2026 · Lisbon &amp; the Algarve</p>
+        <h1>Portugal</h1>
       </header>
+      <div className="tile-strip" aria-hidden="true" />
 
       <section id="bookings">
         <h2>Bookings</h2>
-        <ul>
-          {flights.map((f) => (
-            <li key={f.id}>
-              {f.from} → {f.to} ({f.airline ?? 'airline TBD'}){' '}
-              <span className={`badge badge-${f.status}`}>
-                {formatStatus(f.status)}
-              </span>
-            </li>
-          ))}
-          {hotels.map((h) => (
-            <li key={h.id}>
-              {h.name} ({h.checkIn} – {h.checkOut}){' '}
-              <span className={`badge badge-${h.status}`}>
-                {formatStatus(h.status)}
-              </span>
-              {' — cancel by '}
-              {h.cancellationDeadline}
-            </li>
-          ))}
-        </ul>
+        <div className="booking-grid">
+          <div className="ticket-card">
+            <h3>Flights</h3>
+            <ul>
+              {flights.map((f) => (
+                <li key={f.id}>
+                  <span className="ticket-route">
+                    {f.from} <span className="ticket-arrow">→</span> {f.to}
+                  </span>
+                  <span className="ticket-meta">{f.airline ?? 'airline TBD'}</span>
+                  <span className={`badge badge-${f.status}`}>
+                    {formatStatus(f.status)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="ticket-card">
+            <h3>Stays</h3>
+            <ul>
+              {hotels.map((h) => (
+                <li key={h.id}>
+                  <span className="ticket-route">{h.name}</span>
+                  <span className="ticket-meta">
+                    {h.checkIn} – {h.checkOut} · cancel by {h.cancellationDeadline}
+                  </span>
+                  <span className={`badge badge-${h.status}`}>
+                    {formatStatus(h.status)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </section>
 
-      <ol id="itinerary">{dayNodes}</ol>
+      <section id="itinerary-section">
+        <h2>Itinerary</h2>
+        <ol id="itinerary">{dayNodes}</ol>
+      </section>
 
       <PackingList />
     </>
