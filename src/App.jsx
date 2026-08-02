@@ -16,10 +16,9 @@ function App() {
   }
 
   itinerary.forEach((day, index) => {
-    const density = day.events.length >= 2 ? 'day-busy' : 'day-light'
     dayNodes.push(
       <li
-        className={`day-card ${cityClass[day.city] ?? ''} ${density}`}
+        className={`day-card ${cityClass[day.city] ?? ''}`}
         key={day.date}
       >
         <span className="day-index">{String(index + 1).padStart(2, '0')}</span>

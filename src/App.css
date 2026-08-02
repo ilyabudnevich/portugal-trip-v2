@@ -158,10 +158,6 @@
   border-style: dashed;
 }
 
-.day-card.day-busy {
-  padding-block: 18px;
-}
-
 .day-index {
   font-family: var(--serif);
   font-size: 22px;
