@@ -1,5 +1,6 @@
-import { flights, hotels, restaurants, itinerary } from './data/trip.js'
+import { flights, hotels, itinerary } from './data/trip.js'
 import PackingList from './components/PackingList.jsx'
+import TripPrep from './components/TripPrep.jsx'
 import './App.css'
 
 function formatStatus(status) {
@@ -31,35 +32,26 @@ function App() {
           </div>
           <ul className="day-events">
             {day.events.map((event) => (
-              <li key={event}>{event}</li>
+              <li key={event.text}>
+                {event.text}{' '}
+                <span
+                  className={`badge badge-${event.options ? 'candidate' : 'confirmed'}`}
+                >
+                  {formatStatus(event.options ? 'open' : 'confirmed')}
+                </span>
+                {event.options && (
+                  <ul>
+                    {event.options.map((option) => (
+                      <li key={option}>{option}</li>
+                    ))}
+                  </ul>
+                )}
+              </li>
             ))}
           </ul>
         </div>
       </li>,
     )
-
-    const isFirstAlgarveDay = day.city === 'Algarve' && itinerary[index - 1]?.city !== 'Algarve'
-    const isLastLisbonDay = day.city === 'Lisbon' && itinerary[index + 1]?.city !== 'Lisbon'
-    const groupCity = isFirstAlgarveDay ? 'Algarve' : isLastLisbonDay ? 'Lisbon' : null
-
-    if (groupCity) {
-      const candidates = restaurants.filter((r) => r.city === groupCity)
-      dayNodes.push(
-        <li className="restaurant-group" key={`${groupCity}-restaurants`}>
-          <h3>{groupCity} candidates</h3>
-          <ul>
-            {candidates.map((r) => (
-              <li key={r.id}>
-                {r.name}{' '}
-                <span className={`badge badge-${r.status}`}>
-                  {formatStatus(r.status)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </li>,
-      )
-    }
   })
 
   return (
@@ -114,6 +106,7 @@ function App() {
       </section>
 
       <PackingList />
+      <TripPrep />
     </>
   )
 }
