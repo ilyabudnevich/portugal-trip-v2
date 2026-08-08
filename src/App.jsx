@@ -1,4 +1,5 @@
-import { flights, hotels, itinerary } from './data/trip.js'
+import { useEffect, useState } from 'react'
+import { fetchTripData } from './lib/tripData.js'
 import PackingList from './components/PackingList.jsx'
 import TripPrep from './components/TripPrep.jsx'
 import './App.css'
@@ -8,6 +9,28 @@ function formatStatus(status) {
 }
 
 function App() {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let ignore = false
+    fetchTripData()
+      .then((result) => {
+        if (!ignore) setData(result)
+      })
+      .catch((err) => {
+        if (!ignore) setError(err.message)
+      })
+    return () => {
+      ignore = true
+    }
+  }, [])
+
+  if (error) return <p>Could not load trip data: {error}</p>
+  if (!data) return <p>Loading trip…</p>
+
+  const { flights, hotels, itinerary } = data
+
   const dayNodes = []
 
   const cityClass = {
@@ -105,8 +128,8 @@ function App() {
         <ol id="itinerary">{dayNodes}</ol>
       </section>
 
-      <PackingList />
-      <TripPrep />
+      <PackingList groups={data.packingGroups} />
+      <TripPrep groups={data.prepGroups} />
     </>
   )
 }

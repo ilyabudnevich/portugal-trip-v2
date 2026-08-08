@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { packingGroups } from '../data/packing.js'
 
 const STORAGE_KEY = 'packing-checked-v1'
 
@@ -26,7 +25,7 @@ function saveCheckedState(state) {
   }
 }
 
-function PackingList() {
+function PackingList({ groups }) {
   const [checked, setChecked] = useState(() => loadCheckedState())
 
   function toggleItem(groupId, itemId) {
@@ -42,7 +41,7 @@ function PackingList() {
     <section id="packing-list">
       <h2>Packing list</h2>
       <div className="packing-groups">
-        {packingGroups.map((group) => (
+        {groups.map((group) => (
           <div className="packing-group" key={group.id}>
             <h3>{group.name}</h3>
             {group.items.length === 0 ? (

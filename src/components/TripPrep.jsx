@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { prepGroups } from '../data/prep.js'
 
 const STORAGE_KEY = 'trip-prep-checked-v1'
 
@@ -26,7 +25,7 @@ function saveCheckedState(state) {
   }
 }
 
-function TripPrep() {
+function TripPrep({ groups }) {
   const [checked, setChecked] = useState(() => loadCheckedState())
 
   function toggleItem(groupId, itemId) {
@@ -45,7 +44,7 @@ function TripPrep() {
     >
       <h2>Trip prep</h2>
       <div className="packing-groups">
-        {prepGroups.map((group) => (
+        {groups.map((group) => (
           <div className="packing-group" key={group.id}>
             <h3>{group.name}</h3>
             {group.items.length === 0 ? (
