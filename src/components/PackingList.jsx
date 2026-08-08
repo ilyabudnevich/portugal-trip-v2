@@ -1,45 +1,45 @@
 import { useState } from 'react'
+import { setPackingItemChecked } from '../lib/tripData.js'
 
-const STORAGE_KEY = 'packing-checked-v1'
-
+// Item ids are only unique within a group, so the state map is keyed by both.
 function itemKey(groupId, itemId) {
   return `${groupId}::${itemId}`
 }
 
-function loadCheckedState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveCheckedState(state) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-  } catch {
-    // localStorage unavailable (private browsing quota, etc.) — ignore
-  }
+function initialChecked(groups) {
+  return Object.fromEntries(
+    groups.flatMap((group) =>
+      group.items.map((item) => [itemKey(group.id, item.id), item.checked]),
+    ),
+  )
 }
 
 function PackingList({ groups }) {
-  const [checked, setChecked] = useState(() => loadCheckedState())
+  // Safe to seed from a prop: App renders this only after the fetch resolves and
+  // never refetches, so `groups` never changes identity underneath us.
+  const [checked, setChecked] = useState(() => initialChecked(groups))
+  const [error, setError] = useState(null)
 
-  function toggleItem(groupId, itemId) {
-    setChecked((prev) => {
-      const key = itemKey(groupId, itemId)
-      const next = { ...prev, [key]: !prev[key] }
-      saveCheckedState(next)
-      return next
-    })
+  // Optimistic: flip now, write, and put it back if the write fails.
+  async function toggleItem(groupId, itemId) {
+    const key = itemKey(groupId, itemId)
+    const next = !checked[key]
+
+    setChecked((prev) => ({ ...prev, [key]: next }))
+    setError(null)
+
+    try {
+      await setPackingItemChecked(groupId, itemId, next)
+    } catch (err) {
+      setChecked((prev) => ({ ...prev, [key]: !next }))
+      setError(err.message)
+    }
   }
 
   return (
     <section id="packing-list">
       <h2>Packing list</h2>
+      {error && <p>Could not save: {error}</p>}
       <div className="packing-groups">
         {groups.map((group) => (
           <div className="packing-group" key={group.id}>

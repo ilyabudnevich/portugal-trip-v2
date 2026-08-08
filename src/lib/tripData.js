@@ -2,9 +2,10 @@
 // shapes the components already consume: itinerary days with a nested `events`
 // array, packing/prep groups with a nested `items` array.
 //
-// Read-only by design — no inserts, updates, or deletes anywhere in this file.
-// Packing and prep checkbox state stays in localStorage, owned by the
-// components; the `checked` columns in the database are not read or written.
+// The write surface is deliberately tiny: fetchTripData() reads, and
+// setPackingItemChecked / setPrepItemChecked update a single `checked` column on
+// a single row. No inserts, no deletes, nothing else is ever written.
+// Components go through this module so they never touch the Supabase client.
 
 import { missingEnvMessage, supabase } from './supabase.js'
 
@@ -20,7 +21,7 @@ function groupBy(rows, key) {
   return byKey
 }
 
-// groups + items -> [{ id, name, items: [{ id, name }] }]
+// groups + items -> [{ id, name, items: [{ id, name, checked }] }]
 // `items` defaults to [] so the components' existing "Nothing added yet"
 // branch still works for a group with no rows.
 function nestItems(groups, items) {
@@ -31,6 +32,7 @@ function nestItems(groups, items) {
     items: (itemsByGroup.get(group.id) ?? []).map((item) => ({
       id: item.id,
       name: item.name,
+      checked: item.checked,
     })),
   }))
 }
@@ -63,9 +65,15 @@ export async function fetchTripData() {
       .order('date')
       .order('sort_order'),
     supabase.from('packing_groups').select('id, name').order('sort_order'),
-    supabase.from('packing_items').select('group_id, id, name').order('sort_order'),
+    supabase
+      .from('packing_items')
+      .select('group_id, id, name, checked')
+      .order('sort_order'),
     supabase.from('prep_groups').select('id, name').order('sort_order'),
-    supabase.from('prep_items').select('group_id, id, name').order('sort_order'),
+    supabase
+      .from('prep_items')
+      .select('group_id, id, name, checked')
+      .order('sort_order'),
   ])
 
   const results = [
@@ -100,4 +108,34 @@ export async function fetchTripData() {
     packingGroups: nestItems(packingGroups.data, packingItems.data),
     prepGroups: nestItems(prepGroups.data, prepItems.data),
   }
+}
+
+// Flips `checked` on exactly one row, found by its composite primary key
+// (group_id, id) — item ids are only unique within a group, so both halves are
+// required. The trailing .select() returns the rows actually updated: a filter
+// that matches nothing is not an error in Postgres, so without this an update
+// that hit no row would look like success and the UI would keep a change the
+// database never took.
+async function setItemChecked(table, groupId, itemId, checked) {
+  if (!supabase) throw new Error(missingEnvMessage)
+
+  const { data, error } = await supabase
+    .from(table)
+    .update({ checked })
+    .eq('group_id', groupId)
+    .eq('id', itemId)
+    .select()
+
+  if (error) throw new Error(`${table} — ${error.message}`)
+  if (!data || data.length === 0) {
+    throw new Error(`${table} — no row matched ${groupId}/${itemId}`)
+  }
+}
+
+export function setPackingItemChecked(groupId, itemId, checked) {
+  return setItemChecked('packing_items', groupId, itemId, checked)
+}
+
+export function setPrepItemChecked(groupId, itemId, checked) {
+  return setItemChecked('prep_items', groupId, itemId, checked)
 }
