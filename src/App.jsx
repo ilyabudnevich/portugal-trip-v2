@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { fetchTripData } from './lib/tripData.js'
+import {
+  addEvent,
+  deleteEvent,
+  fetchTripData,
+  setEventStatus,
+} from './lib/tripData.js'
 import PackingList from './components/PackingList.jsx'
 import TripPrep from './components/TripPrep.jsx'
 import './App.css'
@@ -8,9 +13,20 @@ function formatStatus(status) {
   return status.toUpperCase()
 }
 
+// Replaces one day's event list, leaving every other day untouched.
+function withEventsPatched(itinerary, date, updater) {
+  return itinerary.map((day) =>
+    day.date === date ? { ...day, events: updater(day.events) } : day,
+  )
+}
+
 function App() {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [editError, setEditError] = useState(null)
+  const [addingDate, setAddingDate] = useState(null)
+  const [draft, setDraft] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     let ignore = false
@@ -30,6 +46,67 @@ function App() {
   if (!data) return <p>Loading trip…</p>
 
   const { flights, hotels, itinerary } = data
+
+  function patchEvents(date, updater) {
+    setData((prev) => ({
+      ...prev,
+      itinerary: withEventsPatched(prev.itinerary, date, updater),
+    }))
+  }
+
+  // Optimistic: flip now, write, put it back if the write fails.
+  async function toggleStatus(date, event) {
+    const next = event.status === 'open' ? 'confirmed' : 'open'
+    const setStatus = (value) => (events) =>
+      events.map((e) => (e.id === event.id ? { ...e, status: value } : e))
+
+    patchEvents(date, setStatus(next))
+    setEditError(null)
+
+    try {
+      await setEventStatus(event.id, next)
+    } catch (err) {
+      patchEvents(date, setStatus(event.status))
+      setEditError(err.message)
+    }
+  }
+
+  // Add and delete are not optimistic — the write lands first, then the UI.
+  async function removeEvent(date, event) {
+    if (!window.confirm(`Delete '${event.text}'?`)) return
+    setEditError(null)
+
+    try {
+      await deleteEvent(event.id)
+      patchEvents(date, (events) => events.filter((e) => e.id !== event.id))
+    } catch (err) {
+      setEditError(err.message)
+    }
+  }
+
+  async function saveNewEvent(date, events) {
+    const text = draft.trim()
+    if (!text || saving) return
+
+    setSaving(true)
+    setEditError(null)
+
+    try {
+      const sortOrder = Math.max(0, ...events.map((e) => e.sort_order)) + 1
+      const created = await addEvent(date, text, sortOrder)
+      patchEvents(date, (list) => [...list, created])
+      setDraft('') // input stays open and focused for the next entry
+    } catch (err) {
+      setEditError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function cancelAdd() {
+    setAddingDate(null)
+    setDraft('')
+  }
 
   const dayNodes = []
 
@@ -55,13 +132,31 @@ function App() {
           </div>
           <ul className="day-events">
             {day.events.map((event) => (
-              <li key={event.text}>
+              <li key={event.id}>
                 {event.text}{' '}
                 <span
-                  className={`badge badge-${event.options ? 'candidate' : 'confirmed'}`}
+                  className={`badge badge-${event.status === 'open' ? 'candidate' : 'confirmed'} badge-toggle`}
+                  role="button"
+                  tabIndex={0}
+                  title="Change status"
+                  onClick={() => toggleStatus(day.date, event)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      toggleStatus(day.date, event)
+                    }
+                  }}
                 >
-                  {formatStatus(event.options ? 'open' : 'confirmed')}
-                </span>
+                  {formatStatus(event.status)}
+                </span>{' '}
+                <button
+                  type="button"
+                  className="row-delete"
+                  aria-label={`Delete ${event.text}`}
+                  onClick={() => removeEvent(day.date, event)}
+                >
+                  ×
+                </button>
                 {event.options && (
                   <ul>
                     {event.options.map((option) => (
@@ -72,6 +167,35 @@ function App() {
               </li>
             ))}
           </ul>
+          <div className="add-row">
+            {addingDate === day.date ? (
+              <input
+                className="add-input"
+                autoFocus
+                value={draft}
+                placeholder="New event"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveNewEvent(day.date, day.events)
+                  if (e.key === 'Escape') cancelAdd()
+                }}
+                onBlur={() => {
+                  if (!draft.trim()) cancelAdd()
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="add-toggle"
+                onClick={() => {
+                  setAddingDate(day.date)
+                  setDraft('')
+                }}
+              >
+                + Add
+              </button>
+            )}
+          </div>
         </div>
       </li>,
     )
@@ -125,6 +249,7 @@ function App() {
 
       <section id="itinerary-section">
         <h2>Itinerary</h2>
+        {editError && <p>Could not save: {editError}</p>}
         <ol id="itinerary">{dayNodes}</ol>
       </section>
 

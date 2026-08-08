@@ -289,3 +289,92 @@
   color: var(--ink-soft);
   text-decoration: line-through;
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Editing controls — appended section. No rule above this line is
+   modified. Styles only the new affordances: the tappable status badge,
+   the × delete, and the "+ Add" control with its inline input.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The status badge is a span with role="button", not a real <button>: a
+   button is inline-block, so its padding would grow the line box of every
+   itinerary row. This only adds the affordance. */
+.badge-toggle {
+  cursor: pointer;
+}
+
+.badge-toggle:hover,
+.badge-toggle:focus-visible {
+  border-color: var(--azulejo);
+}
+
+/* line-height 1 and baseline alignment keep the × from growing the line
+   box it sits in, inline among the itinerary event text. */
+.row-delete {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
+  vertical-align: baseline;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--line);
+  cursor: pointer;
+}
+
+.row-delete:hover,
+.row-delete:focus-visible {
+  color: var(--terracotta);
+}
+
+/* Packing and prep rows now hold the item button plus a delete sibling.
+   .packing-item carries width:100%, which would overflow beside a
+   sibling — overridden here rather than by editing that rule. */
+.packing-row {
+  display: flex;
+  align-items: center;
+}
+
+.packing-row > .packing-item {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.add-row {
+  margin-top: 8px;
+}
+
+.add-toggle {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.add-toggle:hover,
+.add-toggle:focus-visible {
+  color: var(--azulejo);
+}
+
+.add-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px 6px;
+}
+
+.add-input:focus {
+  outline: 1px solid var(--azulejo);
+  outline-offset: 0;
+}
