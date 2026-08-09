@@ -26,7 +26,8 @@
 
 #bookings,
 #itinerary-section,
-#packing-list {
+#packing-list,
+#trip-prep {
   padding: 28px 8px;
   border-top: 1px solid var(--line);
 
@@ -57,7 +58,8 @@
 }
 
 .badge-confirmed {
-  color: var(--gold);
+  /* --gold-ink, not --gold: at 11px on --gold-bg, --gold is only 2.78:1. */
+  color: var(--gold-ink);
   background: var(--gold-bg);
   border-color: var(--gold);
 }
@@ -281,7 +283,15 @@
   text-align: left;
 }
 
-.packing-item:hover {
+/* Hover only where hover exists. On iOS a tap applies :hover and it sticks
+   until the next tap elsewhere, leaving the row looking selected. */
+@media (hover: hover) {
+  .packing-item:hover {
+    background: var(--azulejo-bg);
+  }
+}
+
+.packing-item:active {
   background: var(--azulejo-bg);
 }
 
@@ -301,30 +311,81 @@
    itinerary row. This only adds the affordance. */
 .badge-toggle {
   cursor: pointer;
+  /* inline-block, not inline: an inline box is an unreliable containing block
+     for the absolutely positioned hit-area overlay below — measured, the
+     overlay only extended upwards. line-height: 1.4 keeps the visible box at
+     ~19px; without it, inline-block inherits the 26px root line-height and the
+     badge grows to ~30px tall. */
+  display: inline-block;
+  line-height: 1.4;
+  vertical-align: baseline;
+  position: relative;
 }
 
-.badge-toggle:hover,
-.badge-toggle:focus-visible {
+/* Largest invisible expansion that cannot overlap the badge above or below.
+   Measured on a single-line event row: row 25.4px, badge 21px sitting flush
+   with the row's bottom edge (4.4px slack above, 0 below), rows separated by
+   .day-events' 4px gap. Adjacent badges therefore stay clear only while the two
+   expansions sum to less than 8.4px — 6 + 2 leaves 0.4px of margin and yields a
+   29px target.
+   Deliberately short of 44px: reaching it needs min-height: 44px on event rows
+   (~1058px more scroll), and expanding past this bound would let a tap on one
+   event's text silently flip the neighbouring event's status. True 44px targets
+   are a native-layout concern. No horizontal growth either — that would push
+   this unguarded control toward the delete gutter. */
+.badge-toggle::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+}
+
+/* The affordance BOOKED badges lack: these ones can be tapped. */
+.badge-toggle::after {
+  content: '›';
+  margin-left: 4px;
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  .badge-toggle:hover {
+    border-color: var(--azulejo);
+  }
+}
+
+.badge-toggle:active {
   border-color: var(--azulejo);
 }
 
-/* line-height 1 and baseline alignment keep the × from growing the line
-   box it sits in, inline among the itinerary event text. */
+/* The glyph stays small; the button box around it is what reaches 44px. Colour
+   is --ink-soft rather than --line: at 1.51:1 the old value was invisible, below
+   even the 3:1 minimum for non-text controls. */
 .row-delete {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
   font-family: var(--mono);
   font-size: 15px;
   line-height: 1;
-  vertical-align: baseline;
-  padding: 0 4px;
+  padding: 0;
   border: none;
   background: none;
-  color: var(--line);
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
-.row-delete:hover,
-.row-delete:focus-visible {
+@media (hover: hover) {
+  .row-delete:hover {
+    color: var(--terracotta);
+  }
+}
+
+.row-delete:active {
   color: var(--terracotta);
 }
 
@@ -334,12 +395,18 @@
 .packing-row {
   display: flex;
   align-items: center;
+  gap: 12px;
+  min-height: 44px;
 }
 
+/* margin-right: 0 cancels .packing-item's -6px bleed on this side, which
+   otherwise slid the delete button 6px underneath the row button. */
 .packing-row > .packing-item {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
+  min-height: 44px;
+  margin-right: 0;
 }
 
 .add-row {
@@ -355,10 +422,24 @@
   background: none;
   color: var(--ink-soft);
   cursor: pointer;
+  position: relative;
 }
 
-.add-toggle:hover,
-.add-toggle:focus-visible {
+/* 35 × 18 visually, 45 × 44 to the thumb. Nothing sits beside it, so expanding
+   in both directions is safe here. */
+.add-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -13px -5px;
+}
+
+@media (hover: hover) {
+  .add-toggle:hover {
+    color: var(--azulejo);
+  }
+}
+
+.add-toggle:active {
   color: var(--azulejo);
 }
 
@@ -366,7 +447,9 @@
   width: 100%;
   box-sizing: border-box;
   font: inherit;
-  font-size: 14px;
+  /* 16px is the threshold below which iOS Safari zooms the page on focus and
+     does not zoom back out. Do not lower this. */
+  font-size: 16px;
   color: var(--ink);
   background: var(--paper-raised);
   border: 1px solid var(--line);
@@ -374,7 +457,287 @@
   padding: 4px 6px;
 }
 
-.add-input:focus {
-  outline: 1px solid var(--azulejo);
-  outline-offset: 0;
+/* ─── Today ─────────────────────────────────────────────────────────────────
+   Same channel as the city accent — a thicker left border — so it reads as
+   emphasis on the existing pattern rather than a new visual language. */
+.day-card.day-today {
+  border-left-width: 8px;
+  box-shadow: var(--shadow);
+}
+
+.day-today-flag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--terracotta-bg);
+  color: var(--terracotta);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* ─── Event rows ────────────────────────────────────────────────────────────
+   Reserve a 44px gutter on the right and park the delete button in it,
+   absolutely positioned. Two consequences, both deliberate:
+   - the gutter's left edge is where text and badge content stops, so the delete
+     hit area can never overlap the badge, which is the unguarded control;
+   - row heights are untouched, so this costs no vertical space. Adjacent
+     delete targets do overlap each other, which is acceptable: both are
+     destructive and both are gated by a confirm that names the item. */
+.event-row {
+  position: relative;
+  padding-right: 44px;
+}
+
+/* Anchored to the first text line, not centred on the row. An event carrying an
+   options list is several lines tall, and centring floated the × down beside the
+   candidates instead of beside the event it deletes. Measured: a single-line row
+   is 25.4px, so its first line centres at 12.7px; a 44px box centred there
+   starts at 12.7 - 22 ≈ -9. */
+.event-row > .row-delete {
+  position: absolute;
+  right: 0;
+  top: -9px;
+}
+
+.event-text {
+  min-width: 0;
+}
+
+/* ─── Option rows ───────────────────────────────────────────────────────────
+   The × sits inline, immediately after the candidate it removes, rather than in
+   a right-hand gutter — a column of ×s far from short text read as belonging to
+   the row rather than to the option. One step smaller and lighter than the event
+   ×, so the two are visibly ranked: removing a candidate is the smaller act.
+   opacity 0.75 is the lightest value that still clears the 3:1 non-text minimum
+   in both palettes (3.11 light, 3.58 dark; 0.70 fails light at 2.84).
+   The padding carries the 44px target and the negative margins cancel it, so the
+   glyph stays 6px after the text and the line box is unchanged. */
+/* "+ option" sits at the end of the candidate list, inside it, so it picks up the
+   list's indent rather than reading as an event-level control.
+   16px, not 8: the option × above is a 45px box centred on a 24.8px line, so it
+   overflows its row by ~10px. At 8px the × was still overhanging this control. */
+.option-add-row {
+  margin-top: 16px;
+}
+
+/* The tightest spot in the layout: this control has the last option's × ~6px
+   above it and the event-level "+ Add" below, and the latter paints later so it
+   wins any overlap. Expansion is therefore capped at 5px up (clearing the ×,
+   which is destructive and must not be stolen from) and 1px down (clearing the
+   "+ Add" zone), giving ~24px rather than 44px. Buying the full 44px costs about
+   372px of extra scroll — see the note in the summary. */
+.option-add-row > .add-toggle::before {
+  top: -5px;
+  bottom: -1px;
+}
+
+/* The event-level "+ Add" reaches 13px above its box. At the previous 8px
+   margin that zone covered the bottom of the "+ option" button above it, making
+   part of a visible control unclickable. 14px clears it. */
+.day-body > .add-row {
+  margin-top: 14px;
+}
+
+.option-row > .row-delete {
+  position: static;
+  display: inline-flex;
+  vertical-align: baseline;
+  width: auto;
+  min-height: 0;
+  font-size: 13px;
+  opacity: 0.75;
+  /* 19px, not 18: the 13px glyph is ~7px wide, so 18px each side landed at
+     43.2px — just under the target. margin-left is padding-left minus the 6px
+     visible gap. */
+  padding: 16px 19px;
+  margin: -16px -19px -16px -13px;
+}
+
+/* Explicit rather than relying on the UA default, which varies. Matches the
+   indent the option lists already had. */
+.event-options {
+  padding-left: 40px;
+  margin: 0;
+}
+
+/* ─── Reorder mode ──────────────────────────────────────────────────────────
+   Arrange / Done live in the day header, tucked after the city the way the TODAY
+   flag is tucked after the date — so .day-card-header keeps its two-child
+   space-between layout untouched. */
+.day-tool {
+  margin-left: 10px;
+  position: relative;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.day-tool::before {
+  content: '';
+  position: absolute;
+  inset: -13px -8px;
+}
+
+@media (hover: hover) {
+  .day-tool:hover {
+    color: var(--azulejo);
+  }
+}
+
+.day-tool:active {
+  color: var(--azulejo);
+}
+
+/* Every editing control disappears while arranging, which is the main signal;
+   this is the quiet confirmation that the card is in a different mode. */
+.day-card.day-reordering {
+  background: var(--azulejo-bg);
+}
+
+/* min-height only applies while arranging, so it costs no scroll in the normal
+   view — and it keeps adjacent 44px handle targets from overlapping. */
+.event-row-arranging {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.event-row-arranging.is-dragging {
+  opacity: 0.6;
+  box-shadow: var(--shadow);
+}
+
+.arranging-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.event-handle {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: grab;
+  /* Deliberately not touch-action: none, which would stop a swipe beginning on
+     the handle from scrolling the page. The TouchSensor's 220ms delay is what
+     separates a scroll from a drag. */
+  touch-action: manipulation;
+}
+
+.event-handle::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+
+.event-handle:active {
+  cursor: grabbing;
+}
+
+/* Tap-to-edit labels, only inside the mode. A real button reset to read as prose:
+   the dashed underline is what tells her the text is editable, reusing the dashed
+   language already in .city-transit and .restaurant-group. */
+.edit-text {
+  position: relative;
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  border: none;
+  border-bottom: 1px dashed var(--line);
+  background: none;
+  cursor: text;
+}
+
+/* Invisible vertical padding via an overlay rather than padding plus a negative
+   margin, so the options list below is not pulled upwards. Kept modest at 6px:
+   an event's text and its first option's text would otherwise overlap. Both are
+   harmless edit targets — a mis-tap opens the wrong editor and Escape dismisses
+   it — but the overlap is worth keeping small. */
+.edit-text::before {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+
+@media (hover: hover) {
+  .edit-text:hover {
+    border-bottom-color: var(--ink-soft);
+  }
+}
+
+/* ─── Save-failure toast ────────────────────────────────────────────────────
+   One shared surface, fixed so it is visible wherever she is in the document.
+   The section-top error lines it replaces could sit six screens away from the
+   row that failed. */
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 10px 8px 10px 14px;
+  border: 1px solid var(--terracotta);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toast-dismiss {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 44px;
+  margin: -10px -8px -10px 0;
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.retry {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--azulejo);
+  border-radius: 3px;
+  background: var(--azulejo-bg);
+  color: var(--ink);
+  cursor: pointer;
 }

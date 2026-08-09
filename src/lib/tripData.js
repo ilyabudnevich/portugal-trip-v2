@@ -4,8 +4,10 @@
 //
 // Every write lives here, so components never touch the Supabase client. The
 // write surface is one function per action: flip an event's status, flip an
-// item's checked, add an event/item, delete an event/item. Nothing else is ever
-// written — flights, hotels, itinerary days, and options lists are read-only.
+// item's checked, add an event/item, delete an event/item, remove one option
+// from an event. Flights, hotels, and itinerary days are read-only.
+//
+// Every write is bounded by an 8s timeout — see runWrite.
 
 import { missingEnvMessage, supabase } from './supabase.js'
 
@@ -25,10 +27,87 @@ function groupBy(rows, key) {
 // delete that hit no row would otherwise look like success and leave the UI
 // showing a change the database never took. Every write ends in .select() so
 // the affected rows are visible to this guard.
-function requireOneRow(table, data, label) {
+//
+// In practice the cause is almost always the other phone: two people edit the
+// same trip, and one deletes a row the other still has on screen. Hence the
+// user-facing wording rather than the table/key detail.
+function requireOneRow(data) {
   if (!data || data.length === 0) {
-    throw new Error(`${table} — no row matched ${label}`)
+    throw new Error('This item was removed on another device.')
   }
+}
+
+// fetch() has no default timeout, so a stalled request never settles: the
+// optimistic UI keeps the change, no error fires, and nothing reaches the
+// database. Aborting turns that silence into a rejection the callers' existing
+// revert-and-report paths already handle.
+//
+// The read gets a longer leash than a write: it is eight parallel queries, and
+// on poor hotel wifi the slowest one gates the whole page.
+const WRITE_TIMEOUT_MS = 8000
+const READ_TIMEOUT_MS = 12000
+
+// Note both timers are throttled to ~1s resolution while the tab is
+// backgrounded, so these bounds hold in the foreground — which is where they
+// matter.
+function timeoutError(ms) {
+  return new Error(`Timed out after ${ms / 1000}s — check your connection.`)
+}
+
+// Refetch-vs-write coordination.
+//
+// A refetch that starts before a write lands and resolves after it carries a
+// stale snapshot. Applying it resurrects the row a delete just removed, or
+// reverts the optimistic flip a toggle just confirmed. window.confirm makes this
+// easy to hit: it blurs and refocuses the window, so the focus revalidation
+// starts while the user is still reading the dialog and resolves after the
+// delete.
+//
+// Callers snapshot writeActivity() before fetching and hand it to
+// writeOverlapped() afterwards. The counting lives here rather than in the
+// components so that every write is covered automatically — there is no call
+// site left to forget.
+let writeEpoch = 0
+let writesInFlight = 0
+
+export function writeActivity() {
+  return { epoch: writeEpoch, inFlight: writesInFlight }
+}
+
+export function writeOverlapped(before) {
+  return (
+    // a write settled while the fetch was in flight
+    writeEpoch !== before.epoch ||
+    // a write is still in flight now, so its result lands after this snapshot
+    writesInFlight > 0 ||
+    // a write was already in flight when the fetch started
+    before.inFlight > 0
+  )
+}
+
+async function runWrite(table, buildQuery) {
+  if (!supabase) throw new Error(missingEnvMessage)
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS)
+  writesInFlight += 1
+
+  let result
+  try {
+    result = await buildQuery().abortSignal(controller.signal)
+  } catch (err) {
+    if (controller.signal.aborted) throw timeoutError(WRITE_TIMEOUT_MS)
+    throw err
+  } finally {
+    clearTimeout(timer)
+    writesInFlight -= 1
+    writeEpoch += 1
+  }
+
+  if (controller.signal.aborted) throw timeoutError(WRITE_TIMEOUT_MS)
+  if (result.error) throw new Error(`${table} — ${result.error.message}`)
+  requireOneRow(result.data)
+  return result.data
 }
 
 // groups + items -> [{ id, name, items: [{ id, name, checked, sort_order }] }]
@@ -65,6 +144,64 @@ function toEvent(row) {
 export async function fetchTripData() {
   if (!supabase) throw new Error(missingEnvMessage)
 
+  // One controller for all eight queries: if the load stalls, the whole page is
+  // stuck behind it, so they succeed or fail together. A rejection here lands on
+  // App's error + Try again path.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  const signal = controller.signal
+
+  let responses
+  try {
+    responses = await Promise.all([
+      // flights and hotels are passed through row-for-row, so select
+      // everything. Their camelCase columns ("checkIn", "from", "to") come back
+      // as row.checkIn / row.from / row.to — already the names the JSX reads.
+      supabase.from('flights').select('*').order('sort_order').abortSignal(signal),
+      supabase.from('hotels').select('*').order('sort_order').abortSignal(signal),
+      supabase
+        .from('itinerary')
+        .select('date, weekday, city')
+        .order('date')
+        .abortSignal(signal),
+      // `id` is needed to update or delete a single event; `status` now drives
+      // the badge directly instead of being inferred from options-presence.
+      supabase
+        .from('itinerary_events')
+        .select('id, date, sort_order, text, status, options')
+        .order('date')
+        .order('sort_order')
+        .abortSignal(signal),
+      supabase
+        .from('packing_groups')
+        .select('id, name')
+        .order('sort_order')
+        .abortSignal(signal),
+      supabase
+        .from('packing_items')
+        .select('group_id, id, name, checked, sort_order')
+        .order('sort_order')
+        .abortSignal(signal),
+      supabase
+        .from('prep_groups')
+        .select('id, name')
+        .order('sort_order')
+        .abortSignal(signal),
+      supabase
+        .from('prep_items')
+        .select('group_id, id, name, checked, sort_order')
+        .order('sort_order')
+        .abortSignal(signal),
+    ])
+  } catch (err) {
+    if (signal.aborted) throw timeoutError(READ_TIMEOUT_MS)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (signal.aborted) throw timeoutError(READ_TIMEOUT_MS)
+
   const [
     flights,
     hotels,
@@ -74,31 +211,7 @@ export async function fetchTripData() {
     packingItems,
     prepGroups,
     prepItems,
-  ] = await Promise.all([
-    // flights and hotels are passed through row-for-row, so select everything.
-    // Their camelCase columns ("checkIn", "from", "to") come back as
-    // row.checkIn / row.from / row.to — already the names the JSX reads.
-    supabase.from('flights').select('*').order('sort_order'),
-    supabase.from('hotels').select('*').order('sort_order'),
-    supabase.from('itinerary').select('date, weekday, city').order('date'),
-    // `id` is needed to update or delete a single event; `status` now drives the
-    // badge directly instead of being inferred from options-presence.
-    supabase
-      .from('itinerary_events')
-      .select('id, date, sort_order, text, status, options')
-      .order('date')
-      .order('sort_order'),
-    supabase.from('packing_groups').select('id, name').order('sort_order'),
-    supabase
-      .from('packing_items')
-      .select('group_id, id, name, checked, sort_order')
-      .order('sort_order'),
-    supabase.from('prep_groups').select('id, name').order('sort_order'),
-    supabase
-      .from('prep_items')
-      .select('group_id, id, name, checked, sort_order')
-      .order('sort_order'),
-  ])
+  ] = responses
 
   const results = [
     ['flights', flights],
@@ -134,51 +247,182 @@ export async function fetchTripData() {
 // ─── Itinerary event writes ─────────────────────────────────────────────────
 // Events are identified by their database-generated bigint id.
 
-export async function setEventStatus(id, status) {
-  if (!supabase) throw new Error(missingEnvMessage)
-
-  const { data, error } = await supabase
-    .from('itinerary_events')
-    .update({ status })
-    .eq('id', id)
-    .select()
-
-  if (error) throw new Error(`itinerary_events — ${error.message}`)
-  requireOneRow('itinerary_events', data, `id ${id}`)
+export function setEventStatus(id, status) {
+  return runWrite('itinerary_events', () =>
+    supabase.from('itinerary_events').update({ status }).eq('id', id).select(),
+  )
 }
 
-export async function deleteEvent(id) {
-  if (!supabase) throw new Error(missingEnvMessage)
-
-  const { data, error } = await supabase
-    .from('itinerary_events')
-    .delete()
-    .eq('id', id)
-    .select()
-
-  if (error) throw new Error(`itinerary_events — ${error.message}`)
-  requireOneRow('itinerary_events', data, `id ${id}`)
+export function deleteEvent(id) {
+  return runWrite('itinerary_events', () =>
+    supabase.from('itinerary_events').delete().eq('id', id).select(),
+  )
 }
 
 // Returns the created row, whose `id` the database assigned — the caller needs
 // that real id in UI state so later toggles and deletes can find the row.
 export async function addEvent(date, text, sortOrder) {
-  if (!supabase) throw new Error(missingEnvMessage)
+  const rows = await runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .insert({
+        date,
+        sort_order: sortOrder,
+        text,
+        status: 'confirmed',
+        options: null,
+      })
+      .select(),
+  )
+  return toEvent(rows[0])
+}
 
-  const { data, error } = await supabase
-    .from('itinerary_events')
-    .insert({
-      date,
-      sort_order: sortOrder,
-      text,
-      status: 'confirmed',
-      options: null,
-    })
-    .select()
+// Removes one option from an event's candidate list. `status` is deliberately
+// untouched: an event stays confirmed (or open) regardless of how many
+// candidates remain. An emptied array is stored as null, matching how events
+// with no candidates were seeded.
+//
+// This is a read-modify-write on the jsonb array using the options the caller
+// already has in state, so it carries the same last-write-wins behaviour as
+// every other write here.
+// Rewrites one day's sort_order values to match a new order.
+//
+// unique (date, sort_order) is an immediate constraint and cannot be deferred
+// without a schema change, so a straight row-by-row renumber transiently
+// collides: the moment one row claims slot 2, the row still holding slot 2
+// conflicts. A single upsert is no better — INSERT ... ON CONFLICT DO UPDATE
+// resolves row by row, so the same intermediate states reach the index, and it
+// would force re-sending text/status and clobber a concurrent edit.
+//
+// Hence two passes. First park every moving row on a negative slot, which cannot
+// collide with any live positive value; then land them all on their final 1..n.
+// The parked values ascend in the intended order, so a failure between the passes
+// leaves the day still reading correctly — just with negative sort_orders — and
+// the caller refetches to show whatever the database actually holds.
+//
+// `date` is never written. It is added to every filter so this function
+// structurally cannot touch a row belonging to another day.
+export async function reorderDayEvents(date, ordered) {
+  const changed = ordered
+    .map((event, index) => ({
+      id: event.id,
+      from: event.sort_order,
+      to: index + 1,
+      // -n .. -1 in the new order, so ascending order still reads correctly if
+      // the second pass never lands.
+      park: -(ordered.length - index),
+    }))
+    .filter((row) => row.from !== row.to)
 
-  if (error) throw new Error(`itinerary_events — ${error.message}`)
-  requireOneRow('itinerary_events', data, `new event on ${date}`)
-  return toEvent(data[0])
+  if (changed.length === 0) return []
+
+  const setSortOrder = (id, sortOrder) =>
+    runWrite('itinerary_events', () =>
+      supabase
+        .from('itinerary_events')
+        .update({ sort_order: sortOrder })
+        .eq('id', id)
+        .eq('date', date)
+        .select(),
+    )
+
+  // Rows left untouched are provably safe to skip: final positions are a
+  // permutation of 1..n, so whichever row currently holds a moving row's target
+  // slot is itself moving.
+  //
+  // The passes are sequential; the writes inside each pass run together, because
+  // the values within a pass are pairwise distinct.
+  await Promise.all(changed.map((row) => setSortOrder(row.id, row.park)))
+  await Promise.all(changed.map((row) => setSortOrder(row.id, row.to)))
+
+  return changed.map((row) => row.id)
+}
+
+// Rewrites one event's text. Nothing else about the row is touched — not status,
+// not options, not sort_order, and not date.
+export async function setEventText(id, text) {
+  await runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .update({ text })
+      .eq('id', id)
+      .select(),
+  )
+
+  return text
+}
+
+// Replaces one candidate with another, in place, so the order of the list is
+// preserved. Like the other option writes, `status` is deliberately untouched.
+//
+// Two guards this needs that removeEventOption does not. A duplicate is rejected
+// for the same reasons as addEventOption: the rendered list is keyed by the
+// option string, and removeEventOption filters by equality. And an option that is
+// no longer in the array is rejected rather than appended — a filter can safely
+// no-op on a missing value, but a rename has no position to write into.
+export async function renameEventOption(id, currentOptions, option, nextOption) {
+  const existing = currentOptions ?? []
+  const index = existing.indexOf(option)
+
+  if (index < 0) {
+    throw new Error('That option was changed on another device.')
+  }
+  if (existing.includes(nextOption)) {
+    throw new Error(`'${nextOption}' is already an option.`)
+  }
+
+  const value = existing.map((entry, i) => (i === index ? nextOption : entry))
+
+  await runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .update({ options: value })
+      .eq('id', id)
+      .select(),
+  )
+
+  return value
+}
+
+// Appends one candidate to an event's options array. Like removeEventOption,
+// `status` is deliberately untouched: gaining or losing candidates says nothing
+// about whether the decision is settled.
+//
+// Duplicates are rejected rather than silently dropped. The rendered list is
+// keyed by the option string, so a duplicate would collide, and
+// removeEventOption filters by equality — deleting one copy would remove both.
+export async function addEventOption(id, currentOptions, option) {
+  const existing = currentOptions ?? []
+  if (existing.includes(option)) {
+    throw new Error(`'${option}' is already an option.`)
+  }
+
+  const value = [...existing, option]
+
+  await runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .update({ options: value })
+      .eq('id', id)
+      .select(),
+  )
+
+  return value
+}
+
+export async function removeEventOption(id, options, option) {
+  const next = (options ?? []).filter((o) => o !== option)
+  const value = next.length > 0 ? next : null
+
+  await runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .update({ options: value })
+      .eq('id', id)
+      .select(),
+  )
+
+  return value
 }
 
 // ─── Packing / prep item writes ─────────────────────────────────────────────
@@ -200,51 +444,42 @@ function newItemId(name) {
   return `${slug || 'item'}-${suffix}`
 }
 
-async function setItemChecked(table, groupId, itemId, checked) {
-  if (!supabase) throw new Error(missingEnvMessage)
-
-  const { data, error } = await supabase
-    .from(table)
-    .update({ checked })
-    .eq('group_id', groupId)
-    .eq('id', itemId)
-    .select()
-
-  if (error) throw new Error(`${table} — ${error.message}`)
-  requireOneRow(table, data, `${groupId}/${itemId}`)
+function setItemChecked(table, groupId, itemId, checked) {
+  return runWrite(table, () =>
+    supabase
+      .from(table)
+      .update({ checked })
+      .eq('group_id', groupId)
+      .eq('id', itemId)
+      .select(),
+  )
 }
 
-async function deleteItem(table, groupId, itemId) {
-  if (!supabase) throw new Error(missingEnvMessage)
-
-  const { data, error } = await supabase
-    .from(table)
-    .delete()
-    .eq('group_id', groupId)
-    .eq('id', itemId)
-    .select()
-
-  if (error) throw new Error(`${table} — ${error.message}`)
-  requireOneRow(table, data, `${groupId}/${itemId}`)
+function deleteItem(table, groupId, itemId) {
+  return runWrite(table, () =>
+    supabase
+      .from(table)
+      .delete()
+      .eq('group_id', groupId)
+      .eq('id', itemId)
+      .select(),
+  )
 }
 
 async function addItem(table, groupId, name, sortOrder) {
-  if (!supabase) throw new Error(missingEnvMessage)
-
-  const { data, error } = await supabase
-    .from(table)
-    .insert({
-      group_id: groupId,
-      id: newItemId(name),
-      sort_order: sortOrder,
-      name,
-      checked: false,
-    })
-    .select()
-
-  if (error) throw new Error(`${table} — ${error.message}`)
-  requireOneRow(table, data, `new item in ${groupId}`)
-  return toItem(data[0])
+  const rows = await runWrite(table, () =>
+    supabase
+      .from(table)
+      .insert({
+        group_id: groupId,
+        id: newItemId(name),
+        sort_order: sortOrder,
+        name,
+        checked: false,
+      })
+      .select(),
+  )
+  return toItem(rows[0])
 }
 
 export function setPackingItemChecked(groupId, itemId, checked) {

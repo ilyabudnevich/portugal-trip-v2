@@ -1,6 +1,8 @@
 :root {
   --ink: #24322d;
-  --ink-soft: #6b7a70;
+  /* #647065 is the lightest value that clears WCAG AA 4.5:1 on both surfaces
+     this token is used on: 5.10 on --paper-raised, 4.64 on --paper. */
+  --ink-soft: #647065;
   --paper: #f7f2e4;
   --paper-raised: #fffdf7;
   --line: #ddd0ac;
@@ -11,11 +13,19 @@
   --terracotta-bg: rgba(189, 95, 44, 0.12);
   --gold: #b6862f;
   --gold-bg: rgba(182, 134, 47, 0.14);
+  /* Text-only companion to --gold. --gold itself stays as-is for decoration
+     (tile strip, transit-day border); at 11px on --gold-bg it only reaches
+     2.78:1, so the confirmed badge's label uses this instead: 4.56:1. */
+  --gold-ink: #8a6420;
   --shadow: 0 12px 24px -12px rgba(28, 43, 38, 0.28);
 
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
+
+  /* Brand-tinted press flash on touch, replacing the grey iOS default. Needed
+     because hover rules are gated behind @media (hover: hover). */
+  -webkit-tap-highlight-color: var(--azulejo-bg);
 
   font: 17px/155% var(--sans);
   letter-spacing: 0.1px;
@@ -46,8 +56,18 @@
     --terracotta-bg: rgba(224, 139, 82, 0.16);
     --gold: #dcb15a;
     --gold-bg: rgba(220, 177, 90, 0.16);
+    /* Dark --gold already reaches 5.08:1 on its own badge fill, and dark
+       --ink-soft 5.17:1 — neither needs darkening here. */
+    --gold-ink: #dcb15a;
     --shadow: 0 14px 28px -12px rgba(0, 0, 0, 0.5);
   }
+}
+
+/* One shared keyboard-focus ring for every control, replacing the piecemeal
+   per-component rules. */
+:focus-visible {
+  outline: 2px solid var(--azulejo);
+  outline-offset: 2px;
 }
 
 body {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   addPrepItem,
   deletePrepItem,
@@ -34,21 +34,25 @@ function withItemAppended(groupList, groupId, item) {
   )
 }
 
-function TripPrep({ groups }) {
-  // Safe to seed from a prop: App renders this only after the fetch resolves and
-  // never refetches, so `groups` never changes identity underneath us.
+function TripPrep({ groups, onError, onConfirm }) {
   const [groupList, setGroupList] = useState(() => groups)
-  const [error, setError] = useState(null)
   const [addingGroupId, setAddingGroupId] = useState(null)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // App refetches when the phone returns to the foreground, so adopt the fresh
+  // rows. This does overwrite an optimistic flip still awaiting its write —
+  // rare, and the server copy is the one to trust.
+  useEffect(() => {
+    setGroupList(groups)
+  }, [groups])
 
   // Optimistic: flip now, write, put it back if the write fails.
   async function toggleItem(groupId, item) {
     const next = !item.checked
 
     setGroupList((prev) => withItemPatch(prev, groupId, item.id, { checked: next }))
-    setError(null)
+    onError(null)
 
     try {
       await setPrepItemChecked(groupId, item.id, next)
@@ -56,37 +60,38 @@ function TripPrep({ groups }) {
       setGroupList((prev) =>
         withItemPatch(prev, groupId, item.id, { checked: item.checked }),
       )
-      setError(err.message)
+      onError(err.message)
     }
   }
 
   // Add and delete are not optimistic — the write lands first, then the UI.
   async function removeItem(groupId, item) {
-    if (!window.confirm(`Delete '${item.name}'?`)) return
-    setError(null)
+    if (!onConfirm(`Delete '${item.name}'?`)) return
+    onError(null)
 
     try {
       await deletePrepItem(groupId, item.id)
       setGroupList((prev) => withItemRemoved(prev, groupId, item.id))
     } catch (err) {
-      setError(err.message)
+      onError(err.message)
     }
   }
 
-  async function saveNewItem(group) {
+  async function saveNewItem(group, closeAfter = false) {
     const name = draft.trim()
     if (!name || saving) return
 
     setSaving(true)
-    setError(null)
+    onError(null)
 
     try {
       const sortOrder = Math.max(0, ...group.items.map((i) => i.sort_order)) + 1
       const created = await addPrepItem(group.id, name, sortOrder)
       setGroupList((prev) => withItemAppended(prev, group.id, created))
       setDraft('') // input stays open and focused for the next entry
+      if (closeAfter) setAddingGroupId(null)
     } catch (err) {
-      setError(err.message)
+      onError(err.message)
     } finally {
       setSaving(false)
     }
@@ -98,12 +103,8 @@ function TripPrep({ groups }) {
   }
 
   return (
-    <section
-      id="trip-prep"
-      style={{ padding: '28px 8px', borderTop: '1px solid var(--line)' }}
-    >
+    <section id="trip-prep">
       <h2>Trip prep</h2>
-      {error && <p>Could not save: {error}</p>}
       <div className="packing-groups">
         {groupList.map((group) => (
           <div className="packing-group" key={group.id}>
@@ -144,13 +145,15 @@ function TripPrep({ groups }) {
                   autoFocus
                   value={draft}
                   placeholder="New item"
+                  aria-label={`New prep item for ${group.name}`}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') saveNewItem(group)
                     if (e.key === 'Escape') cancelAdd()
                   }}
                   onBlur={() => {
-                    if (!draft.trim()) cancelAdd()
+                    if (draft.trim()) saveNewItem(group, true)
+                    else cancelAdd()
                   }}
                 />
               ) : (
