@@ -466,6 +466,54 @@ function deleteItem(table, groupId, itemId) {
   )
 }
 
+// Rewrites one item's name. group_id, id, sort_order and checked are untouched —
+// the id is an internal slug and is deliberately not regenerated from the new
+// name, since checkbox history and every existing reference key off it.
+function setItemName(table, groupId, itemId, name) {
+  return runWrite(table, () =>
+    supabase
+      .from(table)
+      .update({ name })
+      .eq('group_id', groupId)
+      .eq('id', itemId)
+      .select(),
+  )
+}
+
+// Rewrites one group's sort_order values to match a new order.
+//
+// A single pass, unlike reorderDayEvents. That function needs a temporary
+// parking pass because itinerary_events carries unique (date, sort_order), so a
+// row-by-row renumber transiently collides. packing_items and prep_items have no
+// uniqueness rule on sort_order — their primary key is (group_id, id) — so there
+// is no index for an intermediate state to violate, and parking would only
+// double the round-trips.
+//
+// `group_id` is never written. It scopes every filter, so this cannot move an
+// item between groups even if the caller passes the wrong list.
+async function reorderGroupItems(table, groupId, ordered) {
+  const changed = ordered
+    .map((item, index) => ({ id: item.id, from: item.sort_order, to: index + 1 }))
+    .filter((row) => row.from !== row.to)
+
+  if (changed.length === 0) return []
+
+  await Promise.all(
+    changed.map((row) =>
+      runWrite(table, () =>
+        supabase
+          .from(table)
+          .update({ sort_order: row.to })
+          .eq('group_id', groupId)
+          .eq('id', row.id)
+          .select(),
+      ),
+    ),
+  )
+
+  return changed.map((row) => row.id)
+}
+
 async function addItem(table, groupId, name, sortOrder) {
   const rows = await runWrite(table, () =>
     supabase
@@ -504,4 +552,22 @@ export function addPackingItem(groupId, name, sortOrder) {
 
 export function addPrepItem(groupId, name, sortOrder) {
   return addItem('prep_items', groupId, name, sortOrder)
+}
+
+export async function setPackingItemName(groupId, itemId, name) {
+  await setItemName('packing_items', groupId, itemId, name)
+  return name
+}
+
+export async function setPrepItemName(groupId, itemId, name) {
+  await setItemName('prep_items', groupId, itemId, name)
+  return name
+}
+
+export function reorderPackingItems(groupId, ordered) {
+  return reorderGroupItems('packing_items', groupId, ordered)
+}
+
+export function reorderPrepItems(groupId, ordered) {
+  return reorderGroupItems('prep_items', groupId, ordered)
 }

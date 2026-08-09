@@ -600,6 +600,12 @@
   background: var(--azulejo-bg);
 }
 
+/* Same cue for a checklist group. Needs its own rule because .packing-group
+   already sets a background, exactly as .day-card does. */
+.packing-group.group-reordering {
+  background: var(--azulejo-bg);
+}
+
 /* min-height only applies while arranging, so it costs no scroll in the normal
    view — and it keeps adjacent 44px handle targets from overlapping. */
 .event-row-arranging {
