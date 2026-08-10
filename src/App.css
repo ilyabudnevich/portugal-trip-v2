@@ -747,3 +747,135 @@
   color: var(--ink);
   cursor: pointer;
 }
+
+/* ─── Day view: leg tabs + day tiles ────────────────────────────────────────
+   Chunk 1 is structure, not the redesign: these reuse the existing tokens and
+   card idiom so the new controls read as part of today's app. The brief's
+   palette lands in chunk 2. */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.view-toggle {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  padding: 6px 12px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .view-toggle:hover {
+    color: var(--azulejo);
+    border-color: var(--azulejo);
+  }
+}
+
+.view-toggle:active {
+  color: var(--azulejo);
+  border-color: var(--azulejo);
+}
+
+.legs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.leg {
+  flex: 1;
+  min-height: 44px;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.leg-on {
+  border-color: var(--azulejo);
+  background: var(--azulejo-bg);
+}
+
+.leg-name {
+  display: block;
+  font-family: var(--serif);
+  font-size: 17px;
+}
+
+.leg-sub {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* Horizontal because a leg can run longer than a screen; the scrollbar is
+   hidden, so the row reads as a strip rather than as a scroll area. */
+.strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+}
+
+.strip::-webkit-scrollbar {
+  display: none;
+}
+
+.daytile {
+  flex: 0 0 auto;
+  min-width: 52px;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.daytile-on {
+  border-color: var(--azulejo);
+  background: var(--azulejo-bg);
+  color: var(--ink);
+}
+
+/* Today is marked on the tile as well as in the card, so the strip alone says
+   where in the trip she is. */
+.daytile-today {
+  border-style: dashed;
+  border-color: var(--terracotta);
+}
+
+.dt-dow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.dt-num {
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1;
+}

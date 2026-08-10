@@ -46,14 +46,67 @@ function localDateKey(now = new Date()) {
   return `${year}-${month}-${day}`
 }
 
-// Where to scroll on first load. Today when the trip is running; otherwise the
-// nearest end of it, so the app always opens on a useful day. ISO dates compare
-// correctly as strings.
+// Where to scroll on first load in the All days list. Today when the trip is
+// running; otherwise the nearest end of it, so the list always opens on a useful
+// day. ISO dates compare correctly as strings.
 function pickAnchorDate(itinerary, todayKey) {
   if (itinerary.length === 0) return null
   if (itinerary.some((day) => day.date === todayKey)) return todayKey
   if (todayKey < itinerary[0].date) return itinerary[0].date
   return itinerary[itinerary.length - 1].date
+}
+
+// Which day the Day view opens on: today while the trip is running, otherwise
+// the first day. A different question from the anchor above — before the trip
+// this opens on departure day, and after it, on day one rather than the last.
+function pickDefaultDate(itinerary, todayKey) {
+  if (itinerary.length === 0) return null
+  if (itinerary.some((day) => day.date === todayKey)) return todayKey
+  return itinerary[0].date
+}
+
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+]
+
+// Splits '2026-08-28' by hand rather than through Date, which would parse it as
+// UTC midnight and render the day before for anyone west of Greenwich.
+function shortDate(iso) {
+  const [, month, day] = iso.split('-')
+  return `${MONTHS[Number(month) - 1]} ${Number(day)}`
+}
+
+function dayOfMonth(iso) {
+  return String(Number(iso.split('-')[2]))
+}
+
+// Legs are derived from the days themselves — nothing is hardcoded, so a city
+// added in the database becomes a tab on its own.
+//
+// A travel day belongs to the leg it is heading into: 'In transit' resolves to
+// the next real city (the last day falls back to the previous one), which puts
+// the outbound flight under Lisbon instead of stranding it in a leg of one.
+// Legs are then contiguous runs, so a return to a city later in the trip would
+// correctly read as a second visit rather than merging into the first.
+function deriveLegs(itinerary) {
+  const cities = itinerary.map((day) => day.city)
+
+  const resolved = cities.map((city, i) => {
+    if (city !== 'In transit') return city
+    const after = cities.slice(i + 1).find((c) => c !== 'In transit')
+    if (after) return after
+    const before = cities.slice(0, i).reverse().find((c) => c !== 'In transit')
+    return before ?? city
+  })
+
+  const legs = []
+  resolved.forEach((city, i) => {
+    const current = legs[legs.length - 1]
+    if (current && current.city === city) current.days.push(itinerary[i])
+    else legs.push({ id: `${city}-${itinerary[i].date}`, city, days: [itinerary[i]] })
+  })
+  return legs
 }
 
 // One event while its day is being arranged: a drag handle, the text, and the
@@ -196,6 +249,12 @@ function App() {
   // reaches the database until Done.
   const [reorderDate, setReorderDate] = useState(null)
   const [reorderEvents, setReorderEvents] = useState([])
+  // Day view is the landing state; 'all' is the escape hatch back to the full
+  // vertical list. selectedDate stays null until she picks a day, so the default
+  // (today, or day one) is recomputed rather than frozen at load time — the app
+  // can sit open past midnight and still open on the right day tomorrow.
+  const [viewMode, setViewMode] = useState('day')
+  const [selectedDate, setSelectedDate] = useState(null)
   const draggingRef = useRef(false)
   // Tap-to-edit, active only inside the mode. editingRef mirrors `editing` so a
   // handler can check-and-clear atomically — that is what makes an
@@ -302,11 +361,17 @@ function App() {
 
   // Once, on first load only — never on a revalidation, which would yank the
   // view out from under whatever she was reading.
+  //
+  // The anchor only exists in the All days list; the Day view already opens on
+  // the right day and must not scroll its own header off. So this no-ops on
+  // landing and fires the first time she opens All days instead.
   useEffect(() => {
     if (!data || didScrollRef.current) return
+    const anchor = document.getElementById('day-anchor')
+    if (!anchor) return
     didScrollRef.current = true
-    document.getElementById('day-anchor')?.scrollIntoView({ block: 'start' })
-  }, [data])
+    anchor.scrollIntoView({ block: 'start' })
+  }, [data, viewMode])
 
   if (loadError) {
     return (
@@ -323,6 +388,28 @@ function App() {
   const { flights, hotels, itinerary } = data
   const todayKey = localDateKey()
   const anchorDate = pickAnchorDate(itinerary, todayKey)
+
+  const legs = deriveLegs(itinerary)
+  // The selected day is the single source of truth; the active leg is read back
+  // from it. Nothing can drift out of sync because there is only one value.
+  // A stored date the itinerary no longer contains falls back to the default.
+  const hasSelected = itinerary.some((day) => day.date === selectedDate)
+  const currentDate = hasSelected
+    ? selectedDate
+    : pickDefaultDate(itinerary, todayKey)
+  const activeLeg =
+    legs.find((leg) => leg.days.some((day) => day.date === currentDate)) ??
+    legs[0]
+
+  // Changing day abandons an uncommitted arrangement, exactly as Escape does —
+  // the alternative is a Done button pointing at a day that is no longer on
+  // screen.
+  function selectDate(date) {
+    if (reorderDate !== null) exitReorder()
+    cancelAdd()
+    cancelAddOption()
+    setSelectedDate(date)
+  }
 
   function patchEvents(date, updater) {
     setData((prev) => ({
@@ -550,22 +637,25 @@ function App() {
     setDraft('')
   }
 
-  const dayNodes = []
-
   const cityClass = {
     Lisbon: 'city-lisbon',
     Algarve: 'city-algarve',
     'In transit': 'city-transit',
   }
 
-  itinerary.forEach((day, index) => {
+  // One day card, identical in both views — which is what makes every verb
+  // inside it (add, delete, toggle, option-×, Edit mode with drag and rename)
+  // work in the Day view without being re-implemented there.
+  //
+  // `index` is the day's position in the whole trip, so the 03 in the corner
+  // still means the third day of the trip when only one day is on screen.
+  function renderDay(day, index, isAnchor) {
     // The TODAY flag only appears when it genuinely is today. The scroll anchor
     // falls back to the nearest end of the trip, which is a different question.
     const isToday = day.date === todayKey
-    const isAnchor = day.date === anchorDate
     const isArranging = reorderDate === day.date
 
-    dayNodes.push(
+    return (
       <li
         className={`day-card ${cityClass[day.city] ?? ''} ${isToday ? 'day-today' : ''} ${isArranging ? 'day-reordering' : ''}`}
         key={day.date}
@@ -764,9 +854,9 @@ function App() {
           </>
           )}
         </div>
-      </li>,
+      </li>
     )
-  })
+  }
 
   return (
     <>
@@ -791,8 +881,73 @@ function App() {
       <div className="tile-strip" aria-hidden="true" />
 
       <section id="itinerary-section">
-        <h2>Itinerary</h2>
-        <ol id="itinerary">{dayNodes}</ol>
+        <div className="section-head">
+          <h2>Itinerary</h2>
+          <button
+            type="button"
+            className="view-toggle"
+            aria-pressed={viewMode === 'all'}
+            onClick={() => setViewMode(viewMode === 'day' ? 'all' : 'day')}
+          >
+            {viewMode === 'day' ? 'All days' : 'One day'}
+          </button>
+        </div>
+
+        {viewMode === 'day' ? (
+          <>
+            {legs.length > 1 && (
+              <div className="legs" role="tablist" aria-label="Trip legs">
+                {legs.map((leg) => (
+                  <button
+                    key={leg.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={leg === activeLeg}
+                    className={`leg ${leg === activeLeg ? 'leg-on' : ''}`}
+                    // Jumps to the leg's first day, not the day at the same
+                    // offset — a leg is entered at its beginning.
+                    onClick={() => selectDate(leg.days[0].date)}
+                  >
+                    <span className="leg-name">{leg.city}</span>
+                    <span className="leg-sub">
+                      {shortDate(leg.days[0].date)} –{' '}
+                      {shortDate(leg.days[leg.days.length - 1].date)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="strip">
+              {activeLeg.days.map((day) => (
+                <button
+                  key={day.date}
+                  type="button"
+                  className={`daytile ${day.date === currentDate ? 'daytile-on' : ''} ${day.date === todayKey ? 'daytile-today' : ''}`}
+                  aria-current={day.date === currentDate ? 'true' : undefined}
+                  aria-label={`${day.weekday}, ${day.date}`}
+                  onClick={() => selectDate(day.date)}
+                >
+                  <span className="dt-dow">{day.weekday.slice(0, 3)}</span>
+                  <span className="dt-num">{dayOfMonth(day.date)}</span>
+                </button>
+              ))}
+            </div>
+
+            <ol id="itinerary">
+              {itinerary
+                .map((day, index) => [day, index])
+                .filter(([day]) => day.date === currentDate)
+                .map(([day, index]) => renderDay(day, index, false))}
+            </ol>
+          </>
+        ) : (
+          <ol id="itinerary">
+            {itinerary.map((day, index) =>
+              renderDay(day, index, day.date === anchorDate),
+            )}
+          </ol>
+        )}
       </section>
 
       <PackingList
