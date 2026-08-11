@@ -285,9 +285,22 @@
   letter-spacing: 0.3px;
 }
 
+/* Holds the day's name and the Edit/Done button. A flex row because in Edit mode
+   the name becomes a full control — .edit-text and .add-input are both
+   width: 100% blocks, which would otherwise push Done onto its own line. */
 .day-city {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
   font-family: var(--serif);
   color: var(--ink);
+}
+
+.day-city .edit-text,
+.day-city .add-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 100px;
 }
 
 .day-events {

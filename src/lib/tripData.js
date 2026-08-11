@@ -159,9 +159,13 @@ export async function fetchTripData() {
       // as row.checkIn / row.from / row.to — already the names the JSX reads.
       supabase.from('flights').select('*').order('sort_order').abortSignal(signal),
       supabase.from('hotels').select('*').order('sort_order').abortSignal(signal),
+      // `title` is nullable and additive: v1 selects this table by an explicit
+      // column list that does not name it, so the column cannot reach v1's
+      // result set, and v1 never inserts an itinerary row. Null means "no name
+      // given" and the UI falls back to the city.
       supabase
         .from('itinerary')
-        .select('date, weekday, city')
+        .select('date, weekday, city, title')
         .order('date')
         .abortSignal(signal),
       // `id` is needed to update or delete a single event; `status` now drives
@@ -237,11 +241,28 @@ export async function fetchTripData() {
       date: day.date,
       weekday: day.weekday,
       city: day.city,
+      title: day.title,
       events: (eventsByDate.get(day.date) ?? []).map(toEvent),
     })),
     packingGroups: nestItems(packingGroups.data, packingItems.data),
     prepGroups: nestItems(prepGroups.data, prepItems.data),
   }
+}
+
+// ─── Itinerary day writes ───────────────────────────────────────────────────
+// The only write this app makes to the `itinerary` table, and it touches one
+// column: `title`. date, weekday and city — the three columns v1 reads — are
+// never in the update payload, so no value v1 depends on can be altered from
+// here even by a bug.
+//
+// null clears the name rather than storing an empty string, so "no title" has a
+// single representation and the city fallback has a single condition.
+export async function setDayTitle(date, title) {
+  await runWrite('itinerary', () =>
+    supabase.from('itinerary').update({ title }).eq('date', date).select(),
+  )
+
+  return title
 }
 
 // ─── Itinerary event writes ─────────────────────────────────────────────────

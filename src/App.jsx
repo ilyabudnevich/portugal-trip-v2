@@ -24,6 +24,7 @@ import {
   removeEventOption,
   renameEventOption,
   reorderDayEvents,
+  setDayTitle,
   setEventStatus,
   setEventText,
   writeActivity,
@@ -196,7 +197,7 @@ function deriveLegs(itinerary) {
 // One tap-to-edit label. Renders as prose until tapped, then as an input.
 // Escape stops propagation so it reverts this edit rather than reaching the
 // window handler that exits the whole mode.
-function EditableText({ value, label, isEditing, edit }) {
+function EditableText({ value, label, isEditing, edit, placeholder }) {
   if (isEditing) {
     return (
       <input
@@ -204,6 +205,7 @@ function EditableText({ value, label, isEditing, edit }) {
         autoFocus
         value={edit.draft}
         aria-label={label}
+        placeholder={placeholder}
         onChange={(e) => edit.change(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') edit.commit()
@@ -621,11 +623,39 @@ function App() {
 
     const text = editDraft.trim()
     const date = reorderDate
-    const event = reorderEvents.find((e) => e.id === target.eventId)
-    const current = target.kind === 'event' ? event?.text : target.option
 
     // Clearing the ref first is what makes the blur that follows Enter a no-op.
     closeEdit()
+
+    // The day's own name. Unlike an event rename, empty is meaningful here: it
+    // is how she takes a name back off a day, which is why this writes null
+    // rather than rejecting the edit.
+    if (target.kind === 'day') {
+      const day = data.itinerary.find((d) => d.date === date)
+      const next = text === '' ? null : text
+      if (!day || next === (day.title ?? null)) return
+
+      setEditSaving(true)
+      setToast(null)
+
+      try {
+        const saved = await setDayTitle(date, next)
+        setData((prev) => ({
+          ...prev,
+          itinerary: prev.itinerary.map((d) =>
+            d.date === date ? { ...d, title: saved } : d,
+          ),
+        }))
+      } catch (err) {
+        setToast(err.message)
+      } finally {
+        setEditSaving(false)
+      }
+      return
+    }
+
+    const event = reorderEvents.find((e) => e.id === target.eventId)
+    const current = target.kind === 'event' ? event?.text : target.option
 
     // Empty is rejected outright, and identical text is not a rename — neither
     // is worth a round-trip.
@@ -762,6 +792,10 @@ function App() {
     // falls back to the nearest end of the trip, which is a different question.
     const isToday = day.date === todayKey
     const isArranging = reorderDate === day.date
+    // A named day is one she has decided something about — "Sintra + fado
+    // night" rather than "Lisbon". Unnamed days keep saying where they are; the
+    // city is the fallback, not a default she has to clear.
+    const dayTitle = day.title ?? day.city
 
     return (
       <li
@@ -778,7 +812,27 @@ function App() {
               {isToday && <span className="day-today-flag">Today</span>}
             </span>
             <span className="day-city">
-              {day.city}
+              {isArranging ? (
+                // Seeded with the stored title, not with the displayed fallback:
+                // opening the field on an unnamed day must not offer the city as
+                // text to accept, and clearing it back to empty must mean "no
+                // name" rather than "named after the city".
+                <EditableText
+                  value={dayTitle}
+                  label={`Name this day (${day.weekday}, ${day.date})`}
+                  placeholder={day.city}
+                  isEditing={editing !== null && editing.kind === 'day'}
+                  edit={{
+                    draft: editDraft,
+                    change: setEditDraft,
+                    commit: commitEdit,
+                    cancel: closeEdit,
+                    begin: () => beginEdit({ kind: 'day' }, day.title ?? ''),
+                  }}
+                />
+              ) : (
+                dayTitle
+              )}
               {isArranging ? (
                 <button type="button" className="day-tool" onClick={commitReorder}>
                   Done
