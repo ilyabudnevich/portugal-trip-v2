@@ -19,14 +19,17 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   addEvent,
   addEventOption,
+  commitOptionRemoval,
   deleteEvent,
   fetchTripData,
-  removeEventOption,
   renameEventOption,
   reorderDayEvents,
   setDayTitle,
   setEventStatus,
   setEventText,
+  stageDelete,
+  subscribePendingDelete,
+  undoPendingDelete,
   writeActivity,
   writeOverlapped,
 } from './lib/tripData.js'
@@ -408,24 +411,15 @@ function App() {
     }),
   )
 
+  // The last staged delete, mirrored from the data layer: { label } while its
+  // undo window is open, null otherwise. Drives the Undo toast.
+  const [pendingUndo, setPendingUndo] = useState(null)
+
   const didScrollRef = useRef(false)
   const inFlightRef = useRef(false)
   const lastFetchRef = useRef(0)
-  const suppressRevalidateUntilRef = useRef(0)
 
-  // window.confirm blurs the window and refocuses it on dismissal, which would
-  // otherwise trigger the focus revalidation below — starting a refetch while the
-  // dialog is still open, so it resolves after the delete and resurrects the row.
-  // The refocus event arrives after confirm() returns, so the guard has to
-  // outlast the call itself.
-  const confirmAction = useCallback((message) => {
-    suppressRevalidateUntilRef.current = Date.now() + 2000
-    try {
-      return window.confirm(message)
-    } finally {
-      suppressRevalidateUntilRef.current = Date.now() + 2000
-    }
-  }, [])
+  useEffect(() => subscribePendingDelete(setPendingUndo), [])
 
   const runFetch = useCallback(async (isInitial) => {
     if (inFlightRef.current) return
@@ -467,7 +461,6 @@ function App() {
   useEffect(() => {
     function revalidate() {
       if (document.visibilityState === 'hidden') return
-      if (Date.now() < suppressRevalidateUntilRef.current) return
       if (Date.now() - lastFetchRef.current < 2000) return
       runFetch(false)
     }
@@ -587,43 +580,70 @@ function App() {
     }
   }
 
-  // Add, delete, and option-removal are not optimistic — the write lands first,
-  // then the UI.
+  // Deletes are staged, not sent: the row leaves the screen immediately, and the
+  // write fires only when the undo window closes (stageDelete holds it). Undo
+  // splices the captured row back at its captured index — content, options and
+  // sort_order all ride along on the object itself, and no write is ever sent.
   //
-  // Both of these are now only reachable from inside Edit mode, so both have to
-  // patch reorderEvents as well: that array is what the arranging branch renders,
-  // and it is what commitReorder diffs to decide which sort_orders to write.
-  // Dropping the row from both keeps the two in step.
-  async function removeEvent(date, event) {
-    if (!confirmAction(`Delete '${event.text}'?`)) return
+  // Both are only reachable from inside Edit mode, so both patch reorderEvents
+  // as well: that array is what the arranging branch renders, and it is what
+  // commitReorder diffs to decide which sort_orders to write. The restore only
+  // touches it while the mode still has rows — after leaving the mode the array
+  // is empty and must stay that way.
+  function removeEvent(date, event) {
+    const dayEvents =
+      data.itinerary.find((d) => d.date === date)?.events ?? []
+    const index = dayEvents.findIndex((e) => e.id === event.id)
+    if (index < 0) return
+    const arrangeIndex = reorderEvents.findIndex((e) => e.id === event.id)
+
+    patchEvents(date, (events) => events.filter((e) => e.id !== event.id))
+    setReorderEvents((prev) => prev.filter((e) => e.id !== event.id))
     setToast(null)
 
-    try {
-      await deleteEvent(event.id)
-      patchEvents(date, (events) => events.filter((e) => e.id !== event.id))
-      setReorderEvents((prev) => prev.filter((e) => e.id !== event.id))
-    } catch (err) {
-      setToast(err.message)
-    }
+    stageDelete({
+      label: `Deleted '${event.text}'`,
+      commit: () => deleteEvent(event.id),
+      restore: () => {
+        patchEvents(date, (events) => {
+          const next = [...events]
+          next.splice(Math.min(index, next.length), 0, event)
+          return next
+        })
+        setReorderEvents((prev) => {
+          if (prev.length === 0 || arrangeIndex < 0) return prev
+          const next = [...prev]
+          next.splice(Math.min(arrangeIndex, next.length), 0, event)
+          return next
+        })
+      },
+      onError: setToast,
+    })
   }
 
-  async function removeOption(date, event, option) {
-    if (!confirmAction(`Remove option '${option}'?`)) return
+  // The capture is for the screen and for Undo; the eventual write derives from
+  // a fresh read instead (commitOptionRemoval), because trusting a seconds-old
+  // capture would overwrite anything the other phone did to the list meanwhile.
+  function removeOption(date, event, option) {
+    const currentOptions = event.options ?? []
+    if (!currentOptions.includes(option)) return
+    const remaining = currentOptions.filter((o) => o !== option)
+    // Empty stays null, matching what removeEventOption itself stores.
+    const value = remaining.length > 0 ? remaining : null
+
+    patchEventEverywhere(date, event.id, (e) => ({ ...e, options: value }))
     setToast(null)
 
-    try {
-      const nextOptions = await removeEventOption(
-        event.id,
-        event.options,
-        option,
-      )
-      patchEventEverywhere(date, event.id, (e) => ({
-        ...e,
-        options: nextOptions,
-      }))
-    } catch (err) {
-      setToast(err.message)
-    }
+    stageDelete({
+      label: `Removed '${option}'`,
+      commit: () => commitOptionRemoval(event.id, option),
+      restore: () =>
+        patchEventEverywhere(date, event.id, (e) => ({
+          ...e,
+          options: currentOptions,
+        })),
+      onError: setToast,
+    })
   }
 
   function enterReorder(day) {
@@ -1079,17 +1099,35 @@ function App() {
 
   return (
     <>
-      {toast && (
-        <div className="toast" role="status" aria-live="polite">
-          <span className="toast-text">{toast}</span>
-          <button
-            type="button"
-            className="toast-dismiss"
-            aria-label="Dismiss message"
-            onClick={() => setToast(null)}
-          >
-            ×
-          </button>
+      {/* Errors and the undo window stack rather than compete: a failure
+          arriving while a delete is still undoable must not hide the Undo. */}
+      {(toast || pendingUndo) && (
+        <div className="toast-stack">
+          {toast && (
+            <div className="toast" role="status" aria-live="polite">
+              <span className="toast-text">{toast}</span>
+              <button
+                type="button"
+                className="toast-dismiss"
+                aria-label="Dismiss message"
+                onClick={() => setToast(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {pendingUndo && (
+            <div className="toast toast-undo" role="status" aria-live="polite">
+              <span className="toast-text">{pendingUndo.label}</span>
+              <button
+                type="button"
+                className="toast-undo-btn"
+                onClick={undoPendingDelete}
+              >
+                Undo
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1259,13 +1297,11 @@ function App() {
           <PackingList
             groups={data.packingGroups}
             onError={setToast}
-            onConfirm={confirmAction}
           />
         ) : (
           <TripPrep
             groups={data.prepGroups}
             onError={setToast}
-            onConfirm={confirmAction}
           />
         )}
       </section>

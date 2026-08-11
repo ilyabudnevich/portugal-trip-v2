@@ -58,10 +58,7 @@ function timeoutError(ms) {
 //
 // A refetch that starts before a write lands and resolves after it carries a
 // stale snapshot. Applying it resurrects the row a delete just removed, or
-// reverts the optimistic flip a toggle just confirmed. window.confirm makes this
-// easy to hit: it blurs and refocuses the window, so the focus revalidation
-// starts while the user is still reading the dialog and resolves after the
-// delete.
+// reverts the optimistic flip a toggle just confirmed.
 //
 // Callers snapshot writeActivity() before fetching and hand it to
 // writeOverlapped() afterwards. The counting lives here rather than in the
@@ -71,7 +68,11 @@ let writeEpoch = 0
 let writesInFlight = 0
 
 export function writeActivity() {
-  return { epoch: writeEpoch, inFlight: writesInFlight }
+  return {
+    epoch: writeEpoch,
+    inFlight: writesInFlight,
+    pending: pendingDelete !== null,
+  }
 }
 
 export function writeOverlapped(before) {
@@ -81,12 +82,112 @@ export function writeOverlapped(before) {
     // a write is still in flight now, so its result lands after this snapshot
     writesInFlight > 0 ||
     // a write was already in flight when the fetch started
-    before.inFlight > 0
+    before.inFlight > 0 ||
+    // a staged delete is (or was) awaiting its undo window: the database still
+    // holds the row the screen no longer shows, so any snapshot from this span
+    // would resurrect it
+    pendingDelete !== null ||
+    before.pending
   )
+}
+
+// ─── Pending-delete manager ─────────────────────────────────────────────────
+//
+// Deletes are undoable for a short window, and the way that is safe is that
+// nothing is sent: the caller removes the row from its own state, stages the
+// delete here, and the write fires only when the window closes. Undo cancels a
+// write that never happened, so a crash or a closed tab errs on the side of
+// keeping data — the row simply reappears on the next load.
+//
+// One slot, deliberately. A second staged delete commits the first immediately
+// and takes its place, so "the last thing deleted" is always the thing Undo
+// restores, and the toast never has to enumerate.
+//
+// Commits are serialised on a promise chain, and every other write waits for
+// that chain (see runWrite): a staged delete always lands before any later
+// write. That ordering is not politeness — a reorder renumbers a day to 1..n
+// computed from state that excludes the staged row, and unique
+// (date, sort_order) means landing on the staged row's slot while its delete
+// is still in flight would collide.
+const UNDO_WINDOW_MS = 5000
+
+let pendingDelete = null
+let commitChain = Promise.resolve()
+let inCommit = false
+const pendingDeleteListeners = new Set()
+
+function pendingDeleteSnapshot() {
+  return pendingDelete ? { label: pendingDelete.label } : null
+}
+
+function notifyPendingDelete() {
+  const snapshot = pendingDeleteSnapshot()
+  pendingDeleteListeners.forEach((cb) => cb(snapshot))
+}
+
+// The toast renders off this: `cb` fires with { label } while a delete is
+// undoable and null the moment it commits, is undone, or fails. Called once
+// immediately so a subscriber never starts stale.
+export function subscribePendingDelete(cb) {
+  pendingDeleteListeners.add(cb)
+  cb(pendingDeleteSnapshot())
+  return () => pendingDeleteListeners.delete(cb)
+}
+
+// Empties the slot and queues the commit. The slot is cleared before the commit
+// runs — the commit's own runWrite must see no pending delete, or it would try
+// to flush itself. A failed commit restores the caller's state and reports
+// through its onError; the row was never deleted, so restoring is honest.
+function flushPendingDelete() {
+  if (pendingDelete !== null) {
+    const staged = pendingDelete
+    pendingDelete = null
+    clearTimeout(staged.timer)
+    notifyPendingDelete()
+    commitChain = commitChain.then(async () => {
+      inCommit = true
+      try {
+        await staged.commit()
+      } catch (err) {
+        staged.restore()
+        staged.onError(err.message)
+      } finally {
+        inCommit = false
+      }
+    })
+  }
+  return commitChain
+}
+
+// The caller has already removed the row from what it renders and keeps enough
+// in `restore` to put it back — content, position, everything — without a
+// write. `commit` is the ordinary delete write, deferred.
+export function stageDelete({ label, commit, restore, onError }) {
+  flushPendingDelete() // a second delete supersedes: the first commits now
+  const staged = { label, commit, restore, onError }
+  staged.timer = setTimeout(flushPendingDelete, UNDO_WINDOW_MS)
+  pendingDelete = staged
+  notifyPendingDelete()
+}
+
+// No write is ever sent on this path — the delete simply never happens.
+export function undoPendingDelete() {
+  if (pendingDelete === null) return
+  const staged = pendingDelete
+  pendingDelete = null
+  clearTimeout(staged.timer)
+  notifyPendingDelete()
+  staged.restore()
 }
 
 async function runWrite(table, buildQuery) {
   if (!supabase) throw new Error(missingEnvMessage)
+
+  // Any staged delete lands first (see the manager above). inCommit exempts the
+  // staged delete's own write from waiting on the chain it is part of.
+  // Navigation never triggers this — only writes do — so moving around the app
+  // leaves the undo window open.
+  if (!inCommit) await flushPendingDelete()
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS)
@@ -436,6 +537,47 @@ export async function addEventOption(id, currentOptions, option) {
   )
 
   return value
+}
+
+// The staged-delete counterpart to removeEventOption. An undo window is seconds
+// long where the immediate path's exposure was milliseconds, so the options
+// array is re-read at commit time rather than trusted from stage time: an
+// option the other phone added or renamed during the window survives the
+// removal instead of being overwritten by the stale capture.
+//
+// An option already gone from the fresh array commits as a no-op; a row deleted
+// remotely surfaces as requireOneRow's "removed on another device", which lands
+// on the staged delete's restore-and-report path.
+export async function commitOptionRemoval(id, option) {
+  if (!supabase) throw new Error(missingEnvMessage)
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS)
+
+  let result
+  try {
+    result = await supabase
+      .from('itinerary_events')
+      .select('options')
+      .eq('id', id)
+      .abortSignal(controller.signal)
+  } catch (err) {
+    if (controller.signal.aborted) throw timeoutError(WRITE_TIMEOUT_MS)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (controller.signal.aborted) throw timeoutError(WRITE_TIMEOUT_MS)
+  if (result.error) {
+    throw new Error(`itinerary_events — ${result.error.message}`)
+  }
+  requireOneRow(result.data)
+
+  const fresh = result.data[0].options ?? []
+  if (!fresh.includes(option)) return fresh.length > 0 ? fresh : null
+
+  return removeEventOption(id, fresh, option)
 }
 
 export async function removeEventOption(id, options, option) {

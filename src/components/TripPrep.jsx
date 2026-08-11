@@ -8,7 +8,7 @@ import {
 import Checklist from './Checklist.jsx'
 
 // Behaviour lives in Checklist.jsx; this binds the prep writers and labels.
-function TripPrep({ groups, onError, onConfirm }) {
+function TripPrep({ groups, onError }) {
   return (
     <Checklist
       sectionId="trip-prep"
@@ -16,7 +16,6 @@ function TripPrep({ groups, onError, onConfirm }) {
       itemNoun="prep item"
       groups={groups}
       onError={onError}
-      onConfirm={onConfirm}
       writers={{
         setChecked: setPrepItemChecked,
         addItem: addPrepItem,

@@ -8,7 +8,7 @@ import {
 import Checklist from './Checklist.jsx'
 
 // Behaviour lives in Checklist.jsx; this binds the packing writers and labels.
-function PackingList({ groups, onError, onConfirm }) {
+function PackingList({ groups, onError }) {
   return (
     <Checklist
       sectionId="packing-list"
@@ -16,7 +16,6 @@ function PackingList({ groups, onError, onConfirm }) {
       itemNoun="packing item"
       groups={groups}
       onError={onError}
-      onConfirm={onConfirm}
       writers={{
         setChecked: setPackingItemChecked,
         addItem: addPackingItem,

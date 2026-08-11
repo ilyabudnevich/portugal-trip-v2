@@ -16,6 +16,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { stageDelete } from '../lib/tripData.js'
 
 // The packing list and the trip-prep checklist were byte-identical apart from
 // labels and which writers they imported. This holds the behaviour once; the two
@@ -146,7 +147,6 @@ function Checklist({
   itemNoun,
   groups,
   onError,
-  onConfirm,
   writers,
 }) {
   const [groupList, setGroupList] = useState(() => groups)
@@ -211,21 +211,46 @@ function Checklist({
     }
   }
 
-  // Add and delete are not optimistic — the write lands first, then the UI.
-  // Only reachable from inside Edit mode now, so arrangeItems — the array the
-  // editing branch renders and the one commitEdit diffs for sort_orders — has to
-  // drop the row too, or the deleted item stays on screen until Done.
-  async function removeItem(groupId, item) {
-    if (!onConfirm(`Delete '${item.name}'?`)) return
+  // Deletes are staged (see stageDelete): the row leaves the screen now, the
+  // write fires when the undo window closes, and Undo splices the captured item
+  // back at its captured index — name, checked state and sort_order all ride on
+  // the object — without any write.
+  //
+  // Only reachable from inside Edit mode, so arrangeItems — the array the
+  // editing branch renders and the one commitEdit diffs for sort_orders — drops
+  // and restores the row too. The restore leaves it alone once the mode has
+  // been exited and the array emptied.
+  function removeItem(groupId, item) {
+    const group = groupList.find((g) => g.id === groupId)
+    const index = group ? group.items.findIndex((i) => i.id === item.id) : -1
+    if (index < 0) return
+    const arrangeIndex = arrangeItems.findIndex((i) => i.id === item.id)
+
+    setGroupList((prev) => withItemRemoved(prev, groupId, item.id))
+    setArrangeItems((prev) => prev.filter((i) => i.id !== item.id))
     onError(null)
 
-    try {
-      await writers.deleteItem(groupId, item.id)
-      setGroupList((prev) => withItemRemoved(prev, groupId, item.id))
-      setArrangeItems((prev) => prev.filter((i) => i.id !== item.id))
-    } catch (err) {
-      onError(err.message)
-    }
+    stageDelete({
+      label: `Deleted '${item.name}'`,
+      commit: () => writers.deleteItem(groupId, item.id),
+      restore: () => {
+        setGroupList((prev) =>
+          prev.map((g) => {
+            if (g.id !== groupId) return g
+            const items = [...g.items]
+            items.splice(Math.min(index, items.length), 0, item)
+            return { ...g, items }
+          }),
+        )
+        setArrangeItems((prev) => {
+          if (prev.length === 0 || arrangeIndex < 0) return prev
+          const next = [...prev]
+          next.splice(Math.min(arrangeIndex, next.length), 0, item)
+          return next
+        })
+      },
+      onError,
+    })
   }
 
   async function saveNewItem(group, closeAfter = false) {

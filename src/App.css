@@ -830,26 +830,58 @@
    One shared surface, fixed so it is visible wherever she is in the document.
    The section-top error lines it replaces could sit six screens away from the
    row that failed. */
-.toast {
+/* Holds however many toasts exist — an error and an open undo window can
+   overlap in time, and stacking beats hiding one behind the other. Positioning
+   lives here so the toasts themselves just flow. */
+.toast-stack {
   position: fixed;
   left: max(12px, env(safe-area-inset-left));
   right: max(12px, env(safe-area-inset-right));
-  /* Above the tab bar (44px button + 16px padding), not over it: a failure
-     message must not cover the way out of the screen it happened on. */
+  /* Above the tab bar (44px button + 16px padding), not over it: a message
+     must not cover the way out of the screen it happened on. */
   bottom: calc(72px + env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   max-width: 600px;
   margin: 0 auto;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 8px 10px 14px;
   border: 1px solid var(--terracotta);
-  border-radius: 4px;
+  border-radius: 12px;
   background: var(--paper-raised);
   box-shadow: var(--shadow);
   font-size: 14px;
   color: var(--ink);
+}
+
+/* The undo window. Amber, not terracotta: this is the one toast that is an
+   offer rather than a failure. */
+.toast-undo {
+  border-color: var(--tram);
+}
+
+.toast-undo-btn {
+  flex: none;
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-family: var(--label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
 
 .toast-text {
