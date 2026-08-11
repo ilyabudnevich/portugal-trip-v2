@@ -1,27 +1,75 @@
+/* ─── Hero ──────────────────────────────────────────────────────────────────
+   A dark cobalt block bordered top and bottom by the azulejo tile row, so the
+   trip name arrives as a cover page rather than as a page heading. */
 #trip-header {
-  padding: 48px 8px 20px;
+  background: var(--cobalt-deep);
+  color: var(--on-cobalt);
+}
+
+.hero-inner {
+  padding: 20px 22px 18px;
+}
+
+/* Clipped, not scrolled: the row is decoration and simply runs off the edge. */
+.tile-row {
+  display: flex;
+  overflow: hidden;
+  color: var(--tile);
+  opacity: 0.16;
+}
+
+.tile-glyph {
+  display: block;
+  flex: none;
 }
 
 .eyebrow {
   font-family: var(--mono);
-  font-size: 13px;
-  letter-spacing: 0.6px;
+  font-size: 11px;
+  letter-spacing: 2.4px;
   text-transform: uppercase;
-  color: var(--terracotta);
-  margin-bottom: 10px;
+  font-weight: 700;
+  color: var(--tile);
+  margin-bottom: 4px;
 }
 
-.tile-strip {
-  height: 10px;
-  margin: 0 0 8px;
-  background: repeating-linear-gradient(
-    45deg,
-    var(--azulejo) 0 10px,
-    var(--terracotta) 10px 20px,
-    var(--gold) 20px 30px,
-    transparent 30px 40px
-  );
-  opacity: 0.85;
+#trip-header h1 {
+  color: var(--on-cobalt);
+  font-size: 42px;
+  letter-spacing: -0.4px;
+}
+
+.hero-dates {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--hero-soft);
+}
+
+/* inline-flex so the pill hugs the number rather than spanning the hero. */
+.countdown {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid rgba(127, 166, 212, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.count-num {
+  font-family: var(--serif);
+  font-size: 28px;
+  line-height: 1;
+  color: var(--tram);
+}
+
+.count-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--hero-soft);
 }
 
 #bookings,
@@ -41,9 +89,28 @@
   font-size: 11px;
   letter-spacing: 0.5px;
   padding: 2px 8px;
-  border-radius: 3px;
+  border-radius: 999px;
   border: 1px solid var(--line);
   white-space: nowrap;
+}
+
+/* ─── Decision badges ───────────────────────────────────────────────────────
+   Only events carrying candidates get one, so the amber has nothing to compete
+   with — it is the only warm thing in the itinerary and reads as the one open
+   question on the day. The settled state is deliberately almost nothing: a
+   decision that is made should stop asking for attention, while staying a
+   control (see .badge-toggle) so it can be reopened. */
+.badge-open {
+  color: var(--amber-ink);
+  background: var(--amber-bg);
+  border-color: var(--tram);
+  font-weight: 700;
+}
+
+.badge-settled {
+  color: var(--ink-soft);
+  background: none;
+  border-color: var(--mist);
 }
 
 .badge-booked {
@@ -489,6 +556,15 @@
   padding-right: 44px;
 }
 
+/* The badge says it at close range; this says it at a glance, down the length of
+   the day. Padding, not margin, so the text does not shift when the decision is
+   settled and the border goes away. */
+.event-open {
+  border-left: 3px solid var(--tram);
+  padding-left: 10px;
+  margin-left: -13px;
+}
+
 /* Anchored to the first text line, not centred on the row. An event carrying an
    options list is several lines tall, and centring floated the × down beside the
    candidates instead of beside the event it deletes. Measured: a single-line row
@@ -749,9 +825,8 @@
 }
 
 /* ─── Day view: leg tabs + day tiles ────────────────────────────────────────
-   Chunk 1 is structure, not the redesign: these reuse the existing tokens and
-   card idiom so the new controls read as part of today's app. The brief's
-   palette lands in chunk 2. */
+   One selection colour for both controls — a cobalt fill — so "where am I" is a
+   single visual rule read twice, at leg scale and at day scale. */
 .section-head {
   display: flex;
   align-items: baseline;
@@ -796,16 +871,17 @@
   min-height: 44px;
   text-align: left;
   padding: 8px 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 1.5px solid var(--mist);
+  border-radius: 14px;
   background: var(--paper-raised);
   color: var(--ink);
   cursor: pointer;
 }
 
 .leg-on {
-  border-color: var(--azulejo);
-  background: var(--azulejo-bg);
+  border-color: var(--cobalt);
+  background: var(--cobalt);
+  color: var(--on-cobalt);
 }
 
 .leg-name {
@@ -821,6 +897,13 @@
   letter-spacing: 0.3px;
   color: var(--ink-soft);
   margin-top: 2px;
+}
+
+/* currentColor rather than a second token: on the cobalt fill the sub-label is
+   white at 75%, which is the one place --ink-soft would be unreadable. */
+.leg-on .leg-sub {
+  color: currentColor;
+  opacity: 0.78;
 }
 
 /* Horizontal because a leg can run longer than a screen; the scrollbar is
@@ -841,30 +924,30 @@
 .daytile {
   flex: 0 0 auto;
   min-width: 52px;
-  min-height: 56px;
+  min-height: 58px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 1.5px solid var(--mist);
+  border-radius: 10px;
   background: var(--paper-raised);
   color: var(--ink-soft);
   cursor: pointer;
 }
 
 .daytile-on {
-  border-color: var(--azulejo);
-  background: var(--azulejo-bg);
-  color: var(--ink);
+  border-color: var(--cobalt);
+  background: var(--cobalt);
+  color: var(--on-cobalt);
 }
 
 /* Today is marked on the tile as well as in the card, so the strip alone says
-   where in the trip she is. */
+   where in the trip she is. A ring rather than a fill, so it survives being the
+   selected tile as well — the two states stack instead of overwriting. */
 .daytile-today {
-  border-style: dashed;
-  border-color: var(--terracotta);
+  box-shadow: 0 0 0 1.5px var(--tram);
 }
 
 .dt-dow {

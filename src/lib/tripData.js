@@ -261,6 +261,13 @@ export function deleteEvent(id) {
 
 // Returns the created row, whose `id` the database assigned — the caller needs
 // that real id in UI state so later toggles and deletes can find the row.
+//
+// New events arrive 'open'. Something just typed into a day is a thought, not a
+// decision — it is homework until she says otherwise, and arriving amber is what
+// makes it findable later. (It was 'confirmed' before, which meant every new
+// entry was born already settled and silently invisible.) The value is one of
+// the two the status column already holds, so nothing about the shared schema
+// changes.
 export async function addEvent(date, text, sortOrder) {
   const rows = await runWrite('itinerary_events', () =>
     supabase
@@ -269,7 +276,7 @@ export async function addEvent(date, text, sortOrder) {
         date,
         sort_order: sortOrder,
         text,
-        status: 'confirmed',
+        status: 'open',
         options: null,
       })
       .select(),

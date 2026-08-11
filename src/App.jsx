@@ -81,6 +81,85 @@ function dayOfMonth(iso) {
   return String(Number(iso.split('-')[2]))
 }
 
+// Local midnight, so a difference of whole days is a difference of whole days —
+// new Date('2026-08-28') would be UTC midnight and land on the 27th here.
+function parseDateKey(iso) {
+  const [year, month, day] = iso.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+// Rounded, not floored: the two dates are local midnights, and a DST boundary
+// between them makes the span 23 or 25 hours.
+function daysBetween(fromKey, toKey) {
+  return Math.round(
+    (parseDateKey(toKey) - parseDateKey(fromKey)) / 86400000,
+  )
+}
+
+// The azulejo tile from the brief, as a border for the hero. Decoration only —
+// hence aria-hidden on the row rather than a label here.
+function Tile() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" className="tile-glyph">
+      <path
+        d="M22 4 C26 12, 34 14, 40 14 C34 20, 32 26, 32 34 C26 30, 18 30, 12 34 C14 26, 10 20, 4 14 C12 14, 18 10, 22 4 Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      <circle cx="22" cy="22" r="3.2" fill="currentColor" />
+      <path
+        d="M2 2 h6 M2 2 v6 M42 2 h-6 M42 2 v6 M2 42 h6 M2 42 v-6 M42 42 h-6 M42 42 v-6"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        fill="none"
+      />
+    </svg>
+  )
+}
+
+// Enough tiles to cross the widest phone; the row clips whatever does not fit.
+function TileRow() {
+  return (
+    <div className="tile-row" aria-hidden="true">
+      {Array.from({ length: 12 }, (_, i) => (
+        <Tile key={i} />
+      ))}
+    </div>
+  )
+}
+
+// Counts down to the first itinerary date, then counts through the trip, then
+// stops existing. Ticking lives in App (todayKey is state), so this is pure —
+// it re-renders when the date rolls over, not on a timer of its own.
+function Countdown({ itinerary, todayKey }) {
+  if (itinerary.length === 0) return null
+
+  const first = itinerary[0].date
+  const last = itinerary[itinerary.length - 1].date
+
+  if (todayKey > last) return null // the trip is over; the number is not news
+
+  if (todayKey >= first) {
+    return (
+      <p className="countdown">
+        <span className="count-num">{daysBetween(first, todayKey) + 1}</span>
+        <span className="count-label">of {itinerary.length} days</span>
+      </p>
+    )
+  }
+
+  const days = daysBetween(todayKey, first)
+  return (
+    <p className="countdown">
+      <span className="count-num">{days}</span>
+      <span className="count-label">
+        {days === 1 ? 'day to wheels-up' : 'days to wheels-up'}
+      </span>
+    </p>
+  )
+}
+
 // Legs are derived from the days themselves — nothing is hardcoded, so a city
 // added in the database becomes a tab on its own.
 //
@@ -111,7 +190,9 @@ function deriveLegs(itinerary) {
 
 // One event while its day is being arranged: a drag handle, the text, and the
 // candidates that travel with it. Every editing control is deliberately absent —
-// the card should read as arranging, not editing.
+// the card should read as arranging, not editing. Status included: the badge in
+// the normal view is the toggle, on every event, so nothing is out of reach and
+// this card has no reason to carry a second copy of it.
 // One tap-to-edit label. Renders as prose until tapped, then as an input.
 // Escape stops propagation so it reverts this edit rather than reaching the
 // window handler that exits the whole mode.
@@ -255,6 +336,10 @@ function App() {
   // can sit open past midnight and still open on the right day tomorrow.
   const [viewMode, setViewMode] = useState('day')
   const [selectedDate, setSelectedDate] = useState(null)
+  // Today as state rather than as a value read during render, so the countdown,
+  // the TODAY flag and the default day all roll over on their own at midnight
+  // instead of waiting for the next interaction.
+  const [todayKey, setTodayKey] = useState(localDateKey)
   const draggingRef = useRef(false)
   // Tap-to-edit, active only inside the mode. editingRef mirrors `editing` so a
   // handler can check-and-clear atomically — that is what makes an
@@ -323,6 +408,13 @@ function App() {
     runFetch(true)
   }, [runFetch])
 
+  // A minute is fine for a day counter, and setting state to the same string is
+  // a no-op in React — so this only actually re-renders once, at midnight.
+  useEffect(() => {
+    const id = setInterval(() => setTodayKey(localDateKey()), 60000)
+    return () => clearInterval(id)
+  }, [])
+
   // Two phones edit the same trip and nothing pushes changes, so pick them up
   // whenever this one comes back to the foreground. `focus` and
   // `visibilitychange` both fire on a tab return; the throttle collapses them.
@@ -386,7 +478,6 @@ function App() {
   if (!data) return <p>Loading trip…</p>
 
   const { flights, hotels, itinerary } = data
-  const todayKey = localDateKey()
   const anchorDate = pickAnchorDate(itinerary, todayKey)
 
   const legs = deriveLegs(itinerary)
@@ -734,14 +825,28 @@ function App() {
           ) : (
           <>
           <ul className="day-events">
-            {day.events.map((event) => (
-              <li className="event-row" key={event.id}>
+            {day.events.map((event) => {
+              // Every event carries its status, exactly as shipped — the badge is
+              // the toggle, and hiding it anywhere would put a row out of reach.
+              // What the redesign changes is the weight, not the coverage: amber
+              // OPEN is the only warm thing in the day, and the settled state is
+              // a quiet ✓ instead of a second full-strength badge, so a decided
+              // event stops competing with an undecided one.
+              const isOpen = event.status === 'open'
+              const hasOptions = (event.options ?? []).length > 0
+
+              return (
+              <li
+                className={`event-row ${isOpen ? 'event-open' : ''}`}
+                key={event.id}
+              >
                 <span className="event-text">{event.text}</span>{' '}
                 <span
-                  className={`badge badge-${event.status === 'open' ? 'candidate' : 'confirmed'} badge-toggle`}
+                  className={`badge badge-toggle ${isOpen ? 'badge-open' : 'badge-settled'}`}
                   role="button"
                   tabIndex={0}
-                  title="Change status"
+                  title={isOpen ? 'Mark this decided' : 'Reopen this decision'}
+                  aria-label={`${event.text} — ${isOpen ? 'open, mark decided' : 'decided, reopen'}`}
                   onClick={() => toggleStatus(day.date, event)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -750,7 +855,7 @@ function App() {
                     }
                   }}
                 >
-                  {formatStatus(event.status)}
+                  {isOpen ? 'OPEN' : '✓'}
                 </span>
                 <button
                   type="button"
@@ -762,9 +867,10 @@ function App() {
                 </button>
                 {/* Candidates are worth offering while the decision is open, or
                     whenever some are already recorded. A confirmed event with
-                    none needs nothing. */}
-                {((event.options && event.options.length > 0) ||
-                  event.status === 'open') && (
+                    none needs nothing. Unchanged by the badge rule above: this
+                    is the path by which a plain event grows its first candidate
+                    and so earns a badge. */}
+                {(hasOptions || isOpen) && (
                   <ul className="event-options">
                     {(event.options ?? []).map((option) => (
                       <li className="option-row" key={option}>
@@ -818,7 +924,8 @@ function App() {
                   </ul>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
           <div className="add-row">
             {addingDate === day.date ? (
@@ -874,11 +981,23 @@ function App() {
         </div>
       )}
 
+      {/* Every line here is read off the itinerary — the dates, the year and the
+          leg names all move if the trip does. */}
       <header id="trip-header">
-        <p className="eyebrow">28 Aug – 6 Sep 2026 · Lisbon &amp; the Algarve</p>
-        <h1>Portugal</h1>
+        <TileRow />
+        <div className="hero-inner">
+          <p className="eyebrow">The family trip</p>
+          <h1>Portugal</h1>
+          <p className="hero-dates">
+            {shortDate(itinerary[0].date)} —{' '}
+            {shortDate(itinerary[itinerary.length - 1].date)}{' '}
+            {itinerary[0].date.slice(0, 4)} ·{' '}
+            {legs.map((leg) => leg.city).join(' & ')}
+          </p>
+          <Countdown itinerary={itinerary} todayKey={todayKey} />
+        </div>
+        <TileRow />
       </header>
-      <div className="tile-strip" aria-hidden="true" />
 
       <section id="itinerary-section">
         <div className="section-head">

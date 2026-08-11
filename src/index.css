@@ -19,6 +19,23 @@
   --gold-ink: #8a6420;
   --shadow: 0 12px 24px -12px rgba(28, 43, 38, 0.28);
 
+  /* Brief palette. Cobalt is a fill that always carries white text, so it needs
+     a companion ink token rather than being used for text itself; --amber-ink is
+     the text-only companion to --tram, which at 11px on --amber-bg reaches only
+     3.18:1 (the same trap --gold-ink exists for). --amber-ink on --amber-bg is
+     5.15:1. */
+  --porcelain: #f5f7f6;
+  --cobalt: #17497e;
+  --cobalt-deep: #0e2f52;
+  --on-cobalt: #ffffff;
+  --tile: #7fa6d4;
+  --tram: #f0b23e;
+  --mist: #dee6ec;
+  --amber-ink: #8a5a12;
+  --amber-bg: #fbeed3;
+  /* Reads on --cobalt-deep: 8.9:1 and 10.4:1 respectively. */
+  --hero-soft: #c8d6e6;
+
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
@@ -60,6 +77,21 @@
        --ink-soft 5.17:1 — neither needs darkening here. */
     --gold-ink: #dcb15a;
     --shadow: 0 14px 28px -12px rgba(0, 0, 0, 0.5);
+
+    /* The brief is a light design; these are its tokens re-pitched for the dark
+       palette the app already ships. Cobalt stays a mid blue rather than the
+       light --azulejo, because it is a fill under white text (4.9:1 at #2f6f8f)
+       — the same reason --on-cobalt does not flip. */
+    --porcelain: #1d2e37;
+    --cobalt: #2f6f8f;
+    --cobalt-deep: #10222c;
+    --tile: #7cc0e0;
+    --tram: #dcb15a;
+    --mist: #2d434e;
+    /* Already validated at 5.08:1 on this fill as --gold-ink. */
+    --amber-ink: #dcb15a;
+    --amber-bg: rgba(220, 177, 90, 0.16);
+    --hero-soft: #b8c9d8;
   }
 }
 
