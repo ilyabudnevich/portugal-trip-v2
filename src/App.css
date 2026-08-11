@@ -6,8 +6,11 @@
   color: var(--on-cobalt);
 }
 
+/* The hero's background stays full-bleed — only its text moves clear of the
+   notch, which is the point of padding the inner block rather than the header. */
 .hero-inner {
-  padding: 20px 22px 18px;
+  padding: 20px max(22px, env(safe-area-inset-right)) 18px
+    max(22px, env(safe-area-inset-left));
 }
 
 /* Clipped, not scrolled: the row is decoration and simply runs off the edge. */
@@ -72,16 +75,21 @@
   color: var(--hero-soft);
 }
 
+/* max(), not a sum: on a phone held upright every inset is 0 and these collapse
+   to the padding they always had. It is only landscape, where the notch eats
+   into the side, that the inset wins. */
 #bookings,
 #itinerary-section,
 #lists-tab,
 #packing-list,
 #trip-prep {
-  padding: 28px 8px;
+  padding: 28px max(8px, env(safe-area-inset-right)) 28px
+    max(8px, env(safe-area-inset-left));
   border-top: 1px solid var(--line);
 
   @media (max-width: 640px) {
-    padding: 24px 4px;
+    padding: 24px max(4px, env(safe-area-inset-right)) 24px
+      max(4px, env(safe-area-inset-left));
   }
 }
 
@@ -149,81 +157,10 @@
   border-color: var(--azulejo);
 }
 
-.badge-candidate {
-  color: var(--ink-soft);
-  background: var(--paper-raised);
-}
-
-.badge-confirmed {
-  /* --gold-ink, not --gold: at 11px on --gold-bg, --gold is only 2.78:1. */
-  color: var(--gold-ink);
-  background: var(--gold-bg);
-  border-color: var(--gold);
-}
-
-.booking-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-
-  @media (max-width: 640px) {
-    grid-template-columns: 1fr;
-  }
-}
-
-.ticket-card {
-  background: var(--paper-raised);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--azulejo);
-  border-radius: 4px;
-  padding: 18px 20px;
-  box-shadow: var(--shadow);
-
-  h3 {
-    margin: 0 0 12px;
-    font-size: 15px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--ink-soft);
-  }
-
-  ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  li {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-    padding-bottom: 12px;
-    border-bottom: 1px dashed var(--line);
-  }
-
-  li:last-child {
-    padding-bottom: 0;
-    border-bottom: none;
-  }
-}
-
-.ticket-route {
-  font-family: var(--serif);
-  font-size: 17px;
-  color: var(--ink);
-}
-
+/* The only survivor of the old two-column ticket layout: the arrow between a
+   flight's two airports, which the booking card still renders. */
 .ticket-arrow {
   color: var(--terracotta);
-}
-
-.ticket-meta {
-  font-size: 13px;
-  color: var(--ink-soft);
 }
 
 #itinerary {
@@ -312,33 +249,6 @@
   gap: 4px;
   color: var(--ink-soft);
   font-size: 15px;
-}
-
-.restaurant-group {
-  border: 1px dashed var(--line);
-  border-radius: 4px;
-  padding: 16px 18px;
-  margin-left: 44px;
-  background: var(--gold-bg);
-
-  @media (max-width: 640px) {
-    margin-left: 0;
-  }
-
-  h3 {
-    margin: 0 0 8px;
-    font-size: 15px;
-    color: var(--ink);
-  }
-
-  ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
 }
 
 .packing-groups {
@@ -778,7 +688,7 @@
 
 /* Tap-to-edit labels, only inside the mode. A real button reset to read as prose:
    the dashed underline is what tells her the text is editable, reusing the dashed
-   language already in .city-transit and .restaurant-group. */
+   language already in .city-transit. */
 .edit-text {
   position: relative;
   display: block;
@@ -816,8 +726,8 @@
    row that failed. */
 .toast {
   position: fixed;
-  left: 12px;
-  right: 12px;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
   /* Above the tab bar (44px button + 16px padding), not over it: a failure
      message must not cover the way out of the screen it happened on. */
   bottom: calc(72px + env(safe-area-inset-bottom));
@@ -884,8 +794,8 @@
   font-family: var(--mono);
   font-size: 12px;
   letter-spacing: 0.4px;
-  padding: 6px 12px;
-  min-height: 34px;
+  padding: 6px 14px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--paper-raised);
@@ -1093,7 +1003,7 @@
 
 .seg button {
   flex: 1;
-  min-height: 40px;
+  min-height: 44px;
   font-family: var(--sans);
   font-size: 14px;
   font-weight: 600;
@@ -1123,7 +1033,8 @@
   max-width: 880px;
   display: flex;
   gap: 4px;
-  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  padding: 8px max(8px, env(safe-area-inset-right))
+    calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   border-top: 1px solid var(--mist);
   background: var(--paper-raised);
   z-index: 5;
@@ -1146,5 +1057,44 @@
 
 .tabbar-on {
   color: var(--cobalt);
+  background: var(--azulejo-bg);
+}
+
+/* ─── Touch behaviour for the v2 containers ─────────────────────────────────
+   Every control here already paints its own selected state — a cobalt fill, a
+   tinted pill — and iOS paints the tap highlight *over* it and then leaves it
+   there until the next tap lands somewhere else. On a day tile that reads as a
+   second, wrong, selection sitting on top of the real one. So these opt out of
+   the highlight and say it themselves with :active, which lifts the moment the
+   finger does.
+
+   :root keeps its brand-tinted highlight for everything else — this is the
+   exception list, not a reversal.
+
+   touch-action: manipulation removes the double-tap-zoom wait, so the tap
+   registers on lift rather than ~300ms later. Safe on all of these: none is a
+   drag handle, and the strip's own horizontal scroll is unaffected. */
+.view-toggle,
+.leg,
+.daytile,
+.seg button,
+.tabbar-btn {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.leg:active {
+  border-color: var(--cobalt);
+}
+
+.daytile:active {
+  border-color: var(--cobalt);
+}
+
+.seg button:active {
+  color: var(--cobalt);
+}
+
+.tabbar-btn:active {
   background: var(--azulejo-bg);
 }
