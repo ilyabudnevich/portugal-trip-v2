@@ -1,11 +1,11 @@
 :root {
-  --ink: #24322d;
-  /* #647065 is the lightest value that clears WCAG AA 4.5:1 on both surfaces
-     this token is used on: 5.10 on --paper-raised, 4.64 on --paper. */
-  --ink-soft: #647065;
-  --paper: #f7f2e4;
-  --paper-raised: #fffdf7;
-  --line: #ddd0ac;
+  --ink: #1b2733;
+  /* #5d6e7e is the brief's secondary ink and clears WCAG AA on both surfaces
+     this token is used on: 5.61 on --paper-raised, 5.32 on --paper. */
+  --ink-soft: #5d6e7e;
+  --paper: #f5f7f6;
+  --paper-raised: #ffffff;
+  --line: #dee6ec;
   --azulejo: #2f6f8f;
   --azulejo-deep: #1c4a63;
   --azulejo-bg: rgba(47, 111, 143, 0.1);
@@ -37,8 +37,11 @@
   --hero-soft: #c8d6e6;
 
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --sans: 'Karla', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Was --mono. The brief has no monospace: its small-caps labels — chips, day
+     tiles, leg sub-lines, the countdown — are tracked Karla. The token keeps its
+     job (every label in the app points at it) under an honest name. */
+  --label: 'Karla', system-ui, 'Segoe UI', Roboto, sans-serif;
 
   /* Brand-tinted press flash on touch, replacing the grey iOS default. Needed
      because hover rules are gated behind @media (hover: hover). */
@@ -102,16 +105,11 @@
   outline-offset: 2px;
 }
 
+/* Flat porcelain. The dotted paper texture went with the cream palette — under
+   white cards it read as noise behind them rather than as paper. */
 body {
   margin: 0;
   background: var(--paper);
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    var(--line) 1px,
-    transparent 0
-  );
-  background-size: 22px 22px;
-  background-attachment: fixed;
 }
 
 #root {
@@ -161,7 +159,7 @@ p {
 }
 
 code {
-  font-family: var(--mono);
+  font-family: var(--label);
   display: inline-flex;
   border-radius: 4px;
   color: var(--ink);

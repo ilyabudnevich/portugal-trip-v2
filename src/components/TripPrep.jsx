@@ -13,7 +13,6 @@ function TripPrep({ groups, onError, onConfirm }) {
     <Checklist
       sectionId="trip-prep"
       title="Trip prep"
-      checkedLabel="DONE"
       itemNoun="prep item"
       groups={groups}
       onError={onError}

@@ -13,7 +13,6 @@ function PackingList({ groups, onError, onConfirm }) {
     <Checklist
       sectionId="packing-list"
       title="Packing list"
-      checkedLabel="PACKED"
       itemNoun="packing item"
       groups={groups}
       onError={onError}

@@ -189,11 +189,37 @@ function deriveLegs(itinerary) {
   return legs
 }
 
+// The brief gives every event a time in its own field, in cobalt. The schema has
+// no such column and inventing one is out of the question — but the times are
+// already in the text she typed ("Oceanário de Lisboa, 10:00"), so they are
+// picked out where they actually are rather than moved to a field that does not
+// exist. Display only: the stored string is never altered.
+//
+// The capture group is what puts the matches at the odd indices of the split.
+const TIME_TOKEN = /(\d{1,2}:\d{2}(?:\s*[–—-]\s*\d{1,2}:\d{2})?)/g
+
+function withTimes(text) {
+  return text
+    .split(TIME_TOKEN)
+    .map((part, i) =>
+      i % 2 === 1 ? (
+        <span className="ev-time" key={i}>
+          {part}
+        </span>
+      ) : (
+        part
+      ),
+    )
+}
+
 // One event while its day is being arranged: a drag handle, the text, and the
-// candidates that travel with it. Every editing control is deliberately absent —
-// the card should read as arranging, not editing. Status included: the badge in
-// the normal view is the toggle, on every event, so nothing is out of reach and
-// this card has no reason to carry a second copy of it.
+// candidates that travel with it, each with the × that removes it. Deleting is
+// gated behind this mode: in browse there is nothing sharp to catch a thumb, and
+// the same tap that used to delete an event now does nothing at all.
+//
+// Status is the one control that stays out. The badge in the normal view is the
+// toggle, on every event, so nothing is out of reach and this card has no reason
+// to carry a second copy of it.
 // One tap-to-edit label. Renders as prose until tapped, then as an input.
 // Escape stops propagation so it reverts this edit rather than reaching the
 // window handler that exits the whole mode.
@@ -226,7 +252,7 @@ function EditableText({ value, label, isEditing, edit, placeholder }) {
   )
 }
 
-function SortableEventRow({ event, edit, showHandle }) {
+function SortableEventRow({ event, edit, showHandle, onDelete, onRemoveOption }) {
   const {
     attributes,
     listeners,
@@ -299,11 +325,27 @@ function SortableEventRow({ event, edit, showHandle }) {
                       ),
                   }}
                 />
+                <button
+                  type="button"
+                  className="row-delete"
+                  aria-label={`Remove option ${option}`}
+                  onClick={() => onRemoveOption(option)}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
         )}
       </div>
+      <button
+        type="button"
+        className="row-delete"
+        aria-label={`Delete ${event.text}`}
+        onClick={onDelete}
+      >
+        ×
+      </button>
     </li>
   )
 }
@@ -547,6 +589,11 @@ function App() {
 
   // Add, delete, and option-removal are not optimistic — the write lands first,
   // then the UI.
+  //
+  // Both of these are now only reachable from inside Edit mode, so both have to
+  // patch reorderEvents as well: that array is what the arranging branch renders,
+  // and it is what commitReorder diffs to decide which sort_orders to write.
+  // Dropping the row from both keeps the two in step.
   async function removeEvent(date, event) {
     if (!confirmAction(`Delete '${event.text}'?`)) return
     setToast(null)
@@ -554,6 +601,7 @@ function App() {
     try {
       await deleteEvent(event.id)
       patchEvents(date, (events) => events.filter((e) => e.id !== event.id))
+      setReorderEvents((prev) => prev.filter((e) => e.id !== event.id))
     } catch (err) {
       setToast(err.message)
     }
@@ -569,11 +617,10 @@ function App() {
         event.options,
         option,
       )
-      patchEvents(date, (events) =>
-        events.map((e) =>
-          e.id === event.id ? { ...e, options: nextOptions } : e,
-        ),
-      )
+      patchEventEverywhere(date, event.id, (e) => ({
+        ...e,
+        options: nextOptions,
+      }))
     } catch (err) {
       setToast(err.message)
     }
@@ -804,14 +851,17 @@ function App() {
         id={isAnchor ? 'day-anchor' : undefined}
         aria-current={isToday ? 'date' : undefined}
       >
-        <span className="day-index">{String(index + 1).padStart(2, '0')}</span>
         <div className="day-body">
-          <div className="day-card-header">
-            <span className="day-date">
+          <div className="day-head">
+            <p className="day-date">
+              <span className="day-index">
+                {String(index + 1).padStart(2, '0')}
+              </span>
               {day.weekday}, {day.date}
               {isToday && <span className="day-today-flag">Today</span>}
-            </span>
-            <span className="day-city">
+            </p>
+            <div className="day-title-row">
+              <h3 className="day-title">
               {isArranging ? (
                 // Seeded with the stored title, not with the displayed fallback:
                 // opening the field on an unnamed day must not offer the city as
@@ -833,6 +883,7 @@ function App() {
               ) : (
                 dayTitle
               )}
+              </h3>
               {isArranging ? (
                 <button type="button" className="day-tool" onClick={commitReorder}>
                   Done
@@ -853,7 +904,7 @@ function App() {
                   </button>
                 )
               )}
-            </span>
+            </div>
           </div>
           {isArranging ? (
             // Only this day's events are inside the SortableContext, so there is
@@ -880,6 +931,10 @@ function App() {
                       key={event.id}
                       event={event}
                       showHandle={reorderEvents.length > 1}
+                      onDelete={() => removeEvent(day.date, event)}
+                      onRemoveOption={(option) =>
+                        removeOption(day.date, event, option)
+                      }
                       edit={{
                         target: editing,
                         draft: editDraft,
@@ -911,7 +966,7 @@ function App() {
                 className={`event-row ${isOpen ? 'event-open' : ''}`}
                 key={event.id}
               >
-                <span className="event-text">{event.text}</span>{' '}
+                <span className="event-text">{withTimes(event.text)}</span>{' '}
                 <span
                   className={`badge badge-toggle ${isOpen ? 'badge-open' : 'badge-settled'}`}
                   role="button"
@@ -928,35 +983,21 @@ function App() {
                 >
                   {isOpen ? 'OPEN' : '✓'}
                 </span>
-                <button
-                  type="button"
-                  className="row-delete"
-                  aria-label={`Delete ${event.text}`}
-                  onClick={() => removeEvent(day.date, event)}
-                >
-                  ×
-                </button>
                 {/* Candidates are worth offering while the decision is open, or
                     whenever some are already recorded. A confirmed event with
                     none needs nothing. Unchanged by the badge rule above: this
                     is the path by which a plain event grows its first candidate
-                    and so earns a badge. */}
+                    and so earns a badge.
+                    Chips here are text, not controls: choosing one is a verb the
+                    schema has no field for, and removing one is Edit-mode work. */}
                 {(hasOptions || isOpen) && (
-                  <ul className="event-options">
+                  <ul className="opts">
                     {(event.options ?? []).map((option) => (
-                      <li className="option-row" key={option}>
-                        <span className="option-text">{option}</span>
-                        <button
-                          type="button"
-                          className="row-delete"
-                          aria-label={`Remove option ${option}`}
-                          onClick={() => removeOption(day.date, event, option)}
-                        >
-                          ×
-                        </button>
+                      <li className="opt" key={option}>
+                        {option}
                       </li>
                     ))}
-                    <li className="option-add-row">
+                    <li className="opt-add-row">
                       {addingOptionId === event.id ? (
                         <input
                           className="add-input"
@@ -982,7 +1023,7 @@ function App() {
                       ) : (
                         <button
                           type="button"
-                          className="add-toggle"
+                          className="opt opt-add"
                           onClick={() => {
                             setAddingOptionId(event.id)
                             setOptionDraft('')
@@ -1019,13 +1060,13 @@ function App() {
             ) : (
               <button
                 type="button"
-                className="add-toggle"
+                className="addrow"
                 onClick={() => {
                   setAddingDate(day.date)
                   setDraft('')
                 }}
               >
-                + Add
+                + Add activity
               </button>
             )}
           </div>

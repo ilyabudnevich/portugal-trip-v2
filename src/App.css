@@ -27,7 +27,7 @@
 }
 
 .eyebrow {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 11px;
   letter-spacing: 2.4px;
   text-transform: uppercase;
@@ -68,7 +68,7 @@
 }
 
 .count-label {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 11px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -122,13 +122,18 @@
   padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
+/* The brief's chip geometry. 11px rather than its 9.5px: the amber label has to
+   clear 4.5:1 as text, and shrinking it is the one thing that would put the only
+   warm signal in the app below the contrast floor. */
 .badge {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 11px;
-  letter-spacing: 0.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--mist);
   white-space: nowrap;
 }
 
@@ -163,81 +168,80 @@
   color: var(--terracotta);
 }
 
+/* Days are frameless: the white event cards sit straight on the porcelain, as in
+   the brief, and a day is separated from the next by its header and this gap
+   rather than by a box around it. The city accent that used to ride the card's
+   left border went with the frame — the leg tabs and the day title say where
+   she is now. */
 #itinerary {
   list-style: none;
   padding: 0;
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 28px;
 }
 
 .day-card {
-  display: flex;
-  gap: 16px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 14px 18px;
-  background: var(--paper-raised);
-}
-
-.day-card.city-lisbon {
-  border-left: 4px solid var(--azulejo);
-}
-
-.day-card.city-algarve {
-  border-left: 4px solid var(--terracotta);
-}
-
-.day-card.city-transit {
-  border-left: 4px solid var(--gold);
-  border-style: dashed;
-}
-
-.day-index {
-  font-family: var(--serif);
-  font-size: 22px;
-  color: var(--line);
-  line-height: 1;
-  min-width: 28px;
+  display: block;
 }
 
 .day-body {
-  flex: 1;
   min-width: 0;
 }
 
-.day-card-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-weight: 600;
+.day-head {
+  padding: 0 4px 10px;
 }
 
 .day-date {
-  font-family: var(--mono);
-  font-size: 13px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--label);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   color: var(--ink-soft);
-  letter-spacing: 0.3px;
+}
+
+/* The trip-position numeral, kept from v1 but demoted from a column of its own to
+   a prefix on the date line — it answers "how far in are we", which is a
+   question about the eyebrow, not about the day. */
+.day-index {
+  font-family: var(--serif);
+  font-size: 15px;
+  letter-spacing: 0;
+  color: var(--tile);
 }
 
 /* Holds the day's name and the Edit/Done button. A flex row because in Edit mode
    the name becomes a full control — .edit-text and .add-input are both
    width: 100% blocks, which would otherwise push Done onto its own line. */
-.day-city {
+.day-title-row {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   min-width: 0;
+  margin-top: 3px;
+}
+
+.day-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   font-family: var(--serif);
+  font-size: 23px;
+  line-height: 1.15;
   color: var(--ink);
 }
 
-.day-city .edit-text,
-.day-city .add-input {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 100px;
+.day-title .edit-text,
+.day-title .add-input {
+  width: 100%;
+  font: inherit;
 }
 
 .day-events {
@@ -246,8 +250,8 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  color: var(--ink-soft);
+  gap: 8px;
+  color: var(--ink);
   font-size: 15px;
 }
 
@@ -260,13 +264,16 @@
 .packing-group {
   flex: 1 1 220px;
   background: var(--paper-raised);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 16px 18px;
+  border: 1px solid var(--mist);
+  border-radius: 14px;
+  padding: 12px 14px;
 
   h3 {
-    margin: 0 0 10px;
-    font-size: 15px;
+    display: flex;
+    align-items: center;
+    margin: 0 0 6px;
+    font-family: var(--serif);
+    font-size: 17px;
     color: var(--ink);
   }
 }
@@ -290,17 +297,40 @@
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 9px;
   font: inherit;
+  font-size: 14px;
   color: var(--ink);
   background: none;
   border: none;
-  border-radius: 3px;
+  border-radius: 8px;
   padding: 5px 6px;
   margin: 0 -6px;
   cursor: pointer;
   text-align: left;
+}
+
+/* The brief's check: a rounded square that fills cobalt when set. Decorative —
+   aria-pressed on the button is what announces the state — so it takes no target
+   of its own and the whole row stays the tap area it always was. */
+.ev-check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--mist);
+  border-radius: 8px;
+  background: var(--paper-raised);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--on-cobalt);
+}
+
+.ev-check.on {
+  border-color: var(--cobalt);
+  background: var(--cobalt);
 }
 
 /* Hover only where hover exists. On iOS a tap applies :hover and it sticks
@@ -389,7 +419,7 @@
   justify-content: center;
   width: 44px;
   min-height: 44px;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 15px;
   line-height: 1;
   padding: 0;
@@ -434,7 +464,7 @@
 }
 
 .add-toggle {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 12px;
   letter-spacing: 0.4px;
   padding: 2px 0;
@@ -471,133 +501,201 @@
      does not zoom back out. Do not lower this. */
   font-size: 16px;
   color: var(--ink);
-  background: var(--paper-raised);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 4px 6px;
+  background: var(--paper);
+  /* Dashed, per the brief's inline fields: the same language as "+ option" and
+     "+ Add activity", which is what says this box is a thing being written
+     rather than a thing that was already saved. */
+  border: 1.5px dashed var(--tile);
+  border-radius: 8px;
+  padding: 5px 8px;
 }
 
 /* ─── Today ─────────────────────────────────────────────────────────────────
-   Same channel as the city accent — a thicker left border — so it reads as
-   emphasis on the existing pattern rather than a new visual language. */
-.day-card.day-today {
-  border-left-width: 8px;
-  box-shadow: var(--shadow);
+   The frame the emphasis used to hang on is gone, so today says itself in the
+   header instead: the flag beside the date, and the day title in cobalt. */
+.day-card.day-today .day-title {
+  color: var(--cobalt);
 }
 
 .day-today-flag {
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--terracotta-bg);
-  color: var(--terracotta);
-  font-size: 11px;
-  letter-spacing: 0.6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* ─── Event rows ────────────────────────────────────────────────────────────
-   Reserve a 44px gutter on the right and park the delete button in it,
-   absolutely positioned. Two consequences, both deliberate:
-   - the gutter's left edge is where text and badge content stops, so the delete
-     hit area can never overlap the badge, which is the unguarded control;
-   - row heights are untouched, so this costs no vertical space. Adjacent
-     delete targets do overlap each other, which is acceptable: both are
-     destructive and both are gated by a confirm that names the item. */
+/* ─── Event cards ───────────────────────────────────────────────────────────
+   White card on porcelain, per the brief. The right-hand delete gutter is gone
+   with the delete button: nothing destructive renders in browse any more, so the
+   text runs the full width of the card and the badge sits inline after it. */
 .event-row {
-  position: relative;
-  padding-right: 44px;
+  padding: 11px 12px;
+  border: 1px solid var(--mist);
+  border-radius: 12px;
+  background: var(--paper-raised);
 }
 
 /* The badge says it at close range; this says it at a glance, down the length of
-   the day. Padding, not margin, so the text does not shift when the decision is
-   settled and the border goes away. */
+   the day. A border on the card itself now, rather than the old negative-margin
+   rule — the card has an edge to carry it. */
 .event-open {
   border-left: 3px solid var(--tram);
-  padding-left: 10px;
-  margin-left: -13px;
-}
-
-/* Anchored to the first text line, not centred on the row. An event carrying an
-   options list is several lines tall, and centring floated the × down beside the
-   candidates instead of beside the event it deletes. Measured: a single-line row
-   is 25.4px, so its first line centres at 12.7px; a 44px box centred there
-   starts at 12.7 - 22 ≈ -9. */
-.event-row > .row-delete {
-  position: absolute;
-  right: 0;
-  top: -9px;
 }
 
 .event-text {
   min-width: 0;
 }
 
-/* ─── Option rows ───────────────────────────────────────────────────────────
-   The × sits inline, immediately after the candidate it removes, rather than in
-   a right-hand gutter — a column of ×s far from short text read as belonging to
-   the row rather than to the option. One step smaller and lighter than the event
-   ×, so the two are visibly ranked: removing a candidate is the smaller act.
-   opacity 0.75 is the lightest value that still clears the 3:1 non-text minimum
-   in both palettes (3.11 light, 3.58 dark; 0.70 fails light at 2.84).
-   The padding carries the 44px target and the negative margins cancel it, so the
-   glyph stays 6px after the text and the line box is unchanged. */
-/* "+ option" sits at the end of the candidate list, inside it, so it picks up the
-   list's indent rather than reading as an event-level control.
-   16px, not 8: the option × above is a 45px box centred on a 24.8px line, so it
-   overflows its row by ~10px. At 8px the × was still overhanging this control. */
-.option-add-row {
-  margin-top: 16px;
+/* Times are picked out of the text she typed (see withTimes) rather than coming
+   from a field of their own. Cobalt and 700 is what makes a schedule scannable
+   without the app pretending to hold structured times. */
+.ev-time {
+  font-family: var(--label);
+  font-weight: 700;
+  color: var(--cobalt);
 }
 
-/* The tightest spot in the layout: this control has the last option's × ~6px
-   above it and the event-level "+ Add" below, and the latter paints later so it
-   wins any overlap. Expansion is therefore capped at 5px up (clearing the ×,
-   which is destructive and must not be stolen from) and 1px down (clearing the
-   "+ Add" zone), giving ~24px rather than 44px. Buying the full 44px costs about
-   372px of extra scroll — see the note in the summary. */
-.option-add-row > .add-toggle::before {
-  top: -5px;
-  bottom: -1px;
+/* ─── Option chips ──────────────────────────────────────────────────────────
+   Candidates as pills under their event, per the brief. In browse they are text
+   in the shape of a chip, not buttons: choosing one is a verb the schema has no
+   field for. "+ option" is the one real control among them, dashed to say so. */
+.opts {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 8px 0 0;
 }
 
-/* The event-level "+ Add" reaches 13px above its box. At the previous 8px
-   margin that zone covered the bottom of the "+ option" button above it, making
-   part of a visible control unclickable. 14px clears it. */
+.opt {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 4px 10px;
+  border: 1.5px solid var(--mist);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.opt-add-row {
+  display: flex;
+  align-items: center;
+}
+
+/* The one chip that is a button, so it alone carries a 44px target — expanded
+   invisibly, which keeps the pill the same size as the candidates beside it. */
+.opt-add {
+  position: relative;
+  font-family: inherit;
+  border-style: dashed;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.opt-add::before {
+  content: '';
+  position: absolute;
+  inset: -11px -8px;
+}
+
+@media (hover: hover) {
+  .opt-add:hover {
+    border-color: var(--cobalt);
+    color: var(--cobalt);
+  }
+}
+
+.opt-add:active {
+  border-color: var(--cobalt);
+  color: var(--cobalt);
+}
+
+/* The inline input replacing the chip while a candidate is being typed. */
+.opt-add-row > .add-input {
+  min-width: 160px;
+}
+
+/* "+ Add activity": a dashed full-width card at the foot of the day, matching
+   the event cards it adds to. Its own 44px box, so it needs no hit-area
+   expansion and cannot overlap the chips above it. */
+.addrow {
+  width: 100%;
+  min-height: 44px;
+  font-family: var(--label);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px;
+  border: 1.5px dashed var(--mist);
+  border-radius: 12px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .addrow:hover {
+    border-color: var(--cobalt);
+    color: var(--cobalt);
+  }
+}
+
+.addrow:active {
+  border-color: var(--cobalt);
+  color: var(--cobalt);
+}
+
 .day-body > .add-row {
-  margin-top: 14px;
+  margin-top: 8px;
+}
+
+/* Options while arranging keep the row layout — a rename target with its × —
+   rather than the chip shape, because a chip is a poor place to put a caret. */
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+}
+
+/* The × follows the candidate rather than sitting in a column at the card's
+   edge: a column of ×s far from short text reads as belonging to the row rather
+   than to the option it removes. .edit-text is a width:100% block by default,
+   which is what would push it out there. */
+.option-row > .edit-text {
+  flex: 0 1 auto;
+  width: auto;
 }
 
 .option-row > .row-delete {
-  position: static;
-  display: inline-flex;
-  vertical-align: baseline;
-  width: auto;
-  min-height: 0;
-  font-size: 13px;
-  opacity: 0.75;
-  /* 19px, not 18: the 13px glyph is ~7px wide, so 18px each side landed at
-     43.2px — just under the target. margin-left is padding-left minus the 6px
-     visible gap. */
-  padding: 16px 19px;
-  margin: -16px -19px -16px -13px;
+  flex: none;
 }
 
-/* Explicit rather than relying on the UA default, which varies. Matches the
-   indent the option lists already had. */
+/* Explicit rather than relying on the UA default. Matches the indent the option
+   lists already had. */
 .event-options {
-  padding-left: 40px;
-  margin: 0;
+  list-style: none;
+  padding-left: 12px;
+  margin: 4px 0 0;
 }
 
 /* ─── Reorder mode ──────────────────────────────────────────────────────────
-   Arrange / Done live in the day header, tucked after the city the way the TODAY
-   flag is tucked after the date — so .day-card-header keeps its two-child
-   space-between layout untouched. */
+   Edit / Done sit at the end of the day-title row, opposite the name, so the
+   header keeps its two-child space-between layout whichever mode it is in. */
 .day-tool {
-  margin-left: 10px;
+  flex: none;
+  /* Pushed to the end of whichever header holds it: the day-title row balances
+     itself with space-between, but the checklist's group heading needs this to
+     keep Edit off the end of the group name. */
+  margin-left: auto;
   position: relative;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 12px;
   letter-spacing: 0.4px;
   padding: 2px 0;
@@ -623,15 +721,19 @@
   color: var(--azulejo);
 }
 
-/* Every editing control disappears while arranging, which is the main signal;
-   this is the quiet confirmation that the card is in a different mode. */
-.day-card.day-reordering {
+/* The frameless day has no background of its own to tint, so the mode announces
+   itself on the rows instead: the arranging card is the one thing on the page
+   that is not white. */
+.day-card.day-reordering .day-events {
+  padding: 6px;
+  border-radius: 14px;
   background: var(--azulejo-bg);
 }
 
 /* Same cue for a checklist group. Needs its own rule because .packing-group
    already sets a background, exactly as .day-card does. */
 .packing-group.group-reordering {
+  border-color: var(--cobalt);
   background: var(--azulejo-bg);
 }
 
@@ -642,6 +744,10 @@
   align-items: flex-start;
   gap: 8px;
   min-height: 44px;
+  padding: 6px 6px 6px 8px;
+  border: 1px solid var(--mist);
+  border-radius: 12px;
+  background: var(--paper-raised);
 }
 
 .event-row-arranging.is-dragging {
@@ -665,7 +771,7 @@
   padding: 0;
   border: none;
   background: none;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 15px;
   line-height: 1;
   color: var(--ink-soft);
@@ -759,7 +865,7 @@
   width: 44px;
   min-height: 44px;
   margin: -10px -8px -10px 0;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 15px;
   line-height: 1;
   border: none;
@@ -791,7 +897,7 @@
 
 .view-toggle {
   position: relative;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 12px;
   letter-spacing: 0.4px;
   padding: 6px 14px;
@@ -847,7 +953,7 @@
 
 .leg-sub {
   display: block;
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 11px;
   letter-spacing: 0.3px;
   color: var(--ink-soft);
@@ -906,7 +1012,7 @@
 }
 
 .dt-dow {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 10px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
@@ -972,20 +1078,20 @@
 }
 
 .bk-name {
-  font-family: var(--serif);
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--ink);
 }
 
 .bk-when {
-  font-family: var(--mono);
+  font-family: var(--label);
   font-size: 12px;
-  letter-spacing: 0.3px;
-  color: var(--azulejo);
+  font-weight: 700;
+  color: var(--cobalt);
 }
 
 .bk-detail {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink-soft);
 }
 

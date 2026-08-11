@@ -86,9 +86,10 @@ function EditableText({ value, label, isEditing, edit }) {
 }
 
 // One item while its group is being edited: an optional drag handle, the
-// renamable name, and the checked badge as inert text. Delete and check-toggling
-// are deliberately absent — the group should read as editing, not acting.
-function SortableChecklistRow({ item, checkedLabel, showHandle, edit }) {
+// renamable name, and the × that deletes it. Checking is deliberately absent —
+// the group should read as editing, not acting — and deleting lives here rather
+// than in the browse row, so a list being read has nothing sharp in it.
+function SortableChecklistRow({ item, showHandle, edit, onDelete }) {
   const {
     attributes,
     listeners,
@@ -127,7 +128,14 @@ function SortableChecklistRow({ item, checkedLabel, showHandle, edit }) {
           edit={edit}
         />
       </div>
-      {item.checked && <span className="badge badge-booked">{checkedLabel}</span>}
+      <button
+        type="button"
+        className="row-delete"
+        aria-label={`Delete ${item.name}`}
+        onClick={onDelete}
+      >
+        ×
+      </button>
     </li>
   )
 }
@@ -135,7 +143,6 @@ function SortableChecklistRow({ item, checkedLabel, showHandle, edit }) {
 function Checklist({
   sectionId,
   title,
-  checkedLabel,
   itemNoun,
   groups,
   onError,
@@ -205,6 +212,9 @@ function Checklist({
   }
 
   // Add and delete are not optimistic — the write lands first, then the UI.
+  // Only reachable from inside Edit mode now, so arrangeItems — the array the
+  // editing branch renders and the one commitEdit diffs for sort_orders — has to
+  // drop the row too, or the deleted item stays on screen until Done.
   async function removeItem(groupId, item) {
     if (!onConfirm(`Delete '${item.name}'?`)) return
     onError(null)
@@ -212,6 +222,7 @@ function Checklist({
     try {
       await writers.deleteItem(groupId, item.id)
       setGroupList((prev) => withItemRemoved(prev, groupId, item.id))
+      setArrangeItems((prev) => prev.filter((i) => i.id !== item.id))
     } catch (err) {
       onError(err.message)
     }
@@ -420,8 +431,8 @@ function Checklist({
                         <SortableChecklistRow
                           key={item.id}
                           item={item}
-                          checkedLabel={checkedLabel}
                           showHandle={arrangeItems.length > 1}
+                          onDelete={() => removeItem(group.id, item)}
                           edit={{
                             ...edit,
                             target: editing,
@@ -440,26 +451,25 @@ function Checklist({
                     <ul className="packing-items">
                       {group.items.map((item) => (
                         <li className="packing-row" key={item.id}>
+                          {/* aria-pressed already announces the state, so the
+                              check and the strike-through are free to be purely
+                              visual — which is why the badge that used to
+                              restate them is gone. */}
                           <button
                             type="button"
                             className="packing-item"
                             aria-pressed={item.checked}
                             onClick={() => toggleItem(group.id, item)}
                           >
+                            <span
+                              className={item.checked ? 'ev-check on' : 'ev-check'}
+                              aria-hidden="true"
+                            >
+                              {item.checked ? '✓' : ''}
+                            </span>
                             <span className={item.checked ? 'packing-item-name checked' : 'packing-item-name'}>
                               {item.name}
                             </span>
-                            {item.checked && (
-                              <span className="badge badge-booked">{checkedLabel}</span>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="row-delete"
-                            aria-label={`Delete ${item.name}`}
-                            onClick={() => removeItem(group.id, item)}
-                          >
-                            ×
                           </button>
                         </li>
                       ))}
