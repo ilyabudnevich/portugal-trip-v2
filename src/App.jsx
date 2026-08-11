@@ -336,6 +336,8 @@ function App() {
   // can sit open past midnight and still open on the right day tomorrow.
   const [viewMode, setViewMode] = useState('day')
   const [selectedDate, setSelectedDate] = useState(null)
+  const [tab, setTab] = useState('itinerary')
+  const [listSeg, setListSeg] = useState('packing')
   // Today as state rather than as a value read during render, so the countdown,
   // the TODAY flag and the default day all roll over on their own at midnight
   // instead of waiting for the next interaction.
@@ -492,15 +494,30 @@ function App() {
     legs.find((leg) => leg.days.some((day) => day.date === currentDate)) ??
     legs[0]
 
-  // Changing day abandons an uncommitted arrangement, exactly as Escape does —
-  // the alternative is a Done button pointing at a day that is no longer on
-  // screen.
-  function selectDate(date) {
+  // Leaving a day's arrangement uncommitted is the same situation whether she
+  // switches day or switches tab: the Done button would be pointing at something
+  // no longer on screen. Both abandon it, exactly as Escape does.
+  function leaveDay() {
     if (reorderDate !== null) exitReorder()
     cancelAdd()
     cancelAddOption()
+  }
+
+  function selectDate(date) {
+    leaveDay()
     setSelectedDate(date)
   }
+
+  function changeTab(next) {
+    leaveDay()
+    setTab(next)
+  }
+
+  const TABS = [
+    ['itinerary', 'Itinerary'],
+    ['bookings', 'Bookings'],
+    ['lists', 'Lists'],
+  ]
 
   function patchEvents(date, updater) {
     setData((prev) => ({
@@ -999,6 +1016,8 @@ function App() {
         <TileRow />
       </header>
 
+      <main className="app-main">
+      {tab === 'itinerary' && (
       <section id="itinerary-section">
         <div className="section-head">
           <h2>Itinerary</h2>
@@ -1068,55 +1087,109 @@ function App() {
           </ol>
         )}
       </section>
+      )}
 
-      <PackingList
-        groups={data.packingGroups}
-        onError={setToast}
-        onConfirm={confirmAction}
-      />
-      <TripPrep
-        groups={data.prepGroups}
-        onError={setToast}
-        onConfirm={confirmAction}
-      />
-
+      {/* Reservations are content, not a decision: these carry whatever status
+          their row holds and are not part of the open ⇄ confirmed axis the
+          itinerary badges toggle. Every field rendered here is one v1 already
+          rendered — no invented columns. */}
+      {tab === 'bookings' && (
       <section id="bookings">
         <h2>Bookings</h2>
-        <div className="booking-grid">
-          <div className="ticket-card">
-            <h3>Flights</h3>
-            <ul>
-              {flights.map((f) => (
-                <li key={f.id}>
-                  <span className="ticket-route">
-                    {f.from} <span className="ticket-arrow">→</span> {f.to}
-                  </span>
-                  <span className="ticket-meta">{f.airline ?? 'airline TBD'}</span>
-                  <span className={`badge badge-${f.status}`}>
-                    {formatStatus(f.status)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="ticket-card">
-            <h3>Stays</h3>
-            <ul>
-              {hotels.map((h) => (
-                <li key={h.id}>
-                  <span className="ticket-route">{h.name}</span>
-                  <span className="ticket-meta">
-                    {h.checkIn} – {h.checkOut} · cancel by {h.cancellationDeadline}
-                  </span>
-                  <span className={`badge badge-${h.status}`}>
-                    {formatStatus(h.status)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+        <ul className="bookings">
+          {flights.map((f) => (
+            <li className="bk" key={f.id}>
+              <span className="bk-icon bk-flight" aria-hidden="true">
+                ✈
+              </span>
+              <span className="bk-body">
+                <span className="bk-name">
+                  {f.from} <span className="ticket-arrow">→</span> {f.to}
+                </span>
+                <span className="bk-detail">{f.airline ?? 'airline TBD'}</span>
+              </span>
+              <span className={`badge badge-${f.status}`}>
+                {formatStatus(f.status)}
+              </span>
+            </li>
+          ))}
+          {hotels.map((h) => (
+            <li className="bk" key={h.id}>
+              <span className="bk-icon bk-stay" aria-hidden="true">
+                ⌂
+              </span>
+              <span className="bk-body">
+                <span className="bk-name">{h.name}</span>
+                <span className="bk-when">
+                  {shortDate(h.checkIn)} – {shortDate(h.checkOut)}
+                </span>
+                <span className="bk-detail">
+                  cancel by {shortDate(h.cancellationDeadline)}
+                </span>
+              </span>
+              <span className={`badge badge-${h.status}`}>
+                {formatStatus(h.status)}
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
+      )}
+
+      {/* The two checklists, unchanged, one at a time. Each still renders its own
+          <section> with its own heading — the heading is hidden visually here
+          because the segment above already says which list this is, but stays in
+          the accessibility tree as the section's name. */}
+      {tab === 'lists' && (
+      <section id="lists-tab" className="lists-tab" aria-label="Lists">
+        <div className="seg" role="tablist" aria-label="Which list">
+          {[
+            ['packing', 'Packing'],
+            ['prep', 'Trip prep'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={listSeg === id}
+              className={listSeg === id ? 'seg-on' : ''}
+              onClick={() => setListSeg(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {listSeg === 'packing' ? (
+          <PackingList
+            groups={data.packingGroups}
+            onError={setToast}
+            onConfirm={confirmAction}
+          />
+        ) : (
+          <TripPrep
+            groups={data.prepGroups}
+            onError={setToast}
+            onConfirm={confirmAction}
+          />
+        )}
+      </section>
+      )}
+      </main>
+
+      <nav className="tabbar" aria-label="Sections">
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`tabbar-btn ${tab === id ? 'tabbar-on' : ''}`}
+            aria-current={tab === id ? 'page' : undefined}
+            onClick={() => changeTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
   )
 }

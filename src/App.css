@@ -74,6 +74,7 @@
 
 #bookings,
 #itinerary-section,
+#lists-tab,
 #packing-list,
 #trip-prep {
   padding: 28px 8px;
@@ -82,6 +83,35 @@
   @media (max-width: 640px) {
     padding: 24px 4px;
   }
+}
+
+/* The two checklists keep their own <section> and its padding rule above; inside
+   the Lists tab that would be a second frame around the first, so it is undone
+   here rather than by editing the components. */
+.lists-tab > section {
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: 0;
+  border-top: none;
+}
+
+/* Visually hidden, still announced: the segment above names the list on screen,
+   but the section keeps its heading for anyone navigating by headings. */
+.lists-tab > section > h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Clears the fixed tab bar, so the last row of a list is reachable rather than
+   parked underneath it. */
+.app-main {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
 .badge {
@@ -775,7 +805,9 @@
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: 12px;
+  /* Above the tab bar (44px button + 16px padding), not over it: a failure
+     message must not cover the way out of the screen it happened on. */
+  bottom: calc(72px + env(safe-area-inset-bottom));
   z-index: 10;
   display: flex;
   align-items: center;
@@ -961,4 +993,145 @@
   font-family: var(--serif);
   font-size: 19px;
   line-height: 1;
+}
+
+/* ─── Bookings ──────────────────────────────────────────────────────────────
+   One card per reservation in a single column, replacing the two-column
+   flights/stays grid: a booking is a booking, and the icon says which kind
+   faster than a column heading did. */
+.bookings {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.bk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--mist);
+  border-radius: 14px;
+  background: var(--paper-raised);
+}
+
+.bk-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--on-cobalt);
+  background: var(--cobalt);
+}
+
+.bk-flight {
+  background: var(--cobalt-deep);
+}
+
+.bk-stay {
+  background: var(--azulejo);
+}
+
+.bk-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bk-name {
+  font-family: var(--serif);
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.bk-when {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  color: var(--azulejo);
+}
+
+.bk-detail {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* ─── Lists segments ────────────────────────────────────────────────────────
+   Two lists, one at a time — the same "one thing at a time" move the Day view
+   makes on the itinerary. */
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 4px;
+  border-radius: 12px;
+  background: var(--mist);
+}
+
+.seg button {
+  flex: 1;
+  min-height: 40px;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.seg .seg-on {
+  background: var(--paper-raised);
+  color: var(--cobalt);
+  box-shadow: 0 1px 4px rgba(14, 47, 82, 0.12);
+}
+
+/* ─── Tab bar ───────────────────────────────────────────────────────────────
+   Fixed to the viewport but capped at the same 880px as #root, so on a desktop
+   window it sits under the content rather than spanning the whole screen. */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 880px;
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--mist);
+  background: var(--paper-raised);
+  z-index: 5;
+}
+
+.tabbar-btn {
+  flex: 1;
+  min-height: 44px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 8px 0;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.tabbar-on {
+  color: var(--cobalt);
+  background: var(--azulejo-bg);
 }
