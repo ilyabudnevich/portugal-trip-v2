@@ -1372,3 +1372,91 @@
   min-height: 40px;
   padding: 7px;
 }
+
+/* ─── Context at the decision ───────────────────────────────────────────────
+   The weather line: ambience, not a forecast product. It renders or it does
+   not — there is no loading state, no error state, and nothing else moves
+   when it is absent. */
+.weather {
+  margin: 6px 4px 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+/* Options with context stack as rows — the meta line needs a second deck, and
+   long restaurant names were straining the pills anyway. The whole set of an
+   event switches together (see richOptions). */
+.opts-rows {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.optrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.optrow-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 7px 10px;
+  border: 1.5px solid var(--mist);
+  border-radius: 9px;
+  background: var(--paper);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@media (hover: hover) {
+  .optrow-body:hover {
+    border-color: var(--cobalt);
+  }
+}
+
+.optrow-body:active {
+  border-color: var(--cobalt);
+  background: var(--azulejo-bg);
+}
+
+.optrow-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.opt-meta {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+/* The Maps link-out: a target of its own beside the row, so a thumb aiming for
+   the map cannot accidentally open the choose sheet. */
+.pin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  font-size: 16px;
+  color: var(--cobalt);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.event-row > .pin {
+  min-width: 32px;
+  min-height: 24px;
+  vertical-align: middle;
+}

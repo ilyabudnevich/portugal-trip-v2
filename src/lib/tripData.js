@@ -416,6 +416,80 @@ export async function setDayTitle(date, title) {
   return title
 }
 
+// ─── Trip timezone ──────────────────────────────────────────────────────────
+//
+// Today's date where the trip is, as YYYY-MM-DD. Intl does the timezone math —
+// no manual offsets, no DST bookkeeping. en-CA is the locale whose date format
+// is already ISO. This is deliberately the only piece of the deferred
+// time-awareness bundle that ships: the weather window and the memories
+// capture gate both key off it.
+export function todayInTripTZ() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Lisbon',
+  }).format(new Date())
+}
+
+// ─── Weather (Open-Meteo, keyless) ──────────────────────────────────────────
+//
+// One fetch per city per session, cached in memory — including failures, which
+// cache as null so a dead network is one failed request, not one per render.
+// The consumer renders nothing on null: no error state, no spinner, no retry.
+// Coordinates are the two places the trip actually sleeps; a day whose city
+// has no entry here (In transit) simply gets no weather line.
+const CITY_COORDS = {
+  Lisbon: { lat: 38.72, lon: -9.14 },
+  Algarve: { lat: 37.09, lon: -8.19 },
+}
+const WEATHER_TIMEOUT_MS = 6000
+const forecastCache = new Map()
+
+async function fetchForecast({ lat, lon }) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), WEATHER_TIMEOUT_MS)
+
+  let json
+  try {
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        '&daily=weathercode,temperature_2m_max,windspeed_10m_max' +
+        '&forecast_days=16&timezone=Europe%2FLisbon',
+      { signal: controller.signal },
+    )
+    if (!res.ok) throw new Error(`weather — ${res.status}`)
+    json = await res.json()
+  } finally {
+    clearTimeout(timer)
+  }
+
+  // Reshaped to date-keyed rows so the consumer's question — "what about this
+  // day?" — is a lookup, not a scan. The 16-day span from today is also the
+  // rendering window: a date outside it simply is not a key. The API pads the
+  // far end of the window with null values rather than omitting the dates, so
+  // those days are dropped here — a half-known forecast renders as no forecast.
+  const out = {}
+  json.daily.time.forEach((date, i) => {
+    const code = json.daily.weathercode[i]
+    const tmax = json.daily.temperature_2m_max[i]
+    const wind = json.daily.windspeed_10m_max[i]
+    if (code == null || tmax == null || wind == null) return
+    out[date] = { code, tmax, wind }
+  })
+  return out
+}
+
+// Resolves to a date-keyed forecast map, or null — never rejects.
+export function getCityForecast(city) {
+  const coords = CITY_COORDS[city]
+  if (!coords) return Promise.resolve(null)
+  if (!forecastCache.has(city)) {
+    forecastCache.set(
+      city,
+      fetchForecast(coords).catch(() => null),
+    )
+  }
+  return forecastCache.get(city)
+}
+
 // Plain Google Maps search URL — no key, no SDK. Lives here so the iOS port
 // carries the exact same link-building rule.
 export function mapsUrl(query) {

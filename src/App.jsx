@@ -23,6 +23,7 @@ import {
   commitOptionRemoval,
   deleteEvent,
   fetchTripData,
+  getCityForecast,
   mapsUrl,
   offerUndo,
   renameEventOption,
@@ -103,6 +104,38 @@ function daysBetween(fromKey, toKey) {
   return Math.round(
     (parseDateKey(toKey) - parseDateKey(fromKey)) / 86400000,
   )
+}
+
+// Open-Meteo weathercode, compressed to one lowercase word-or-two. Buckets, not
+// a full table — the line is ambience, not a forecast product.
+function weatherWord(code) {
+  if (code === 0) return 'clear'
+  if (code === 1) return 'mostly clear'
+  if (code === 2) return 'partly cloudy'
+  if (code === 3) return 'overcast'
+  if (code === 45 || code === 48) return 'fog'
+  if (code >= 51 && code <= 57) return 'drizzle'
+  if (code >= 61 && code <= 67) return 'rain'
+  if (code >= 71 && code <= 77) return 'snow'
+  if (code >= 80 && code <= 82) return 'showers'
+  if (code >= 85 && code <= 86) return 'snow showers'
+  if (code >= 95) return 'thunderstorm'
+  return null
+}
+
+// One quiet line for a day inside the forecast window; null otherwise — absence
+// is the only failure mode. Wind leads on the Benagil boat day (2026-09-03),
+// where it is the go/no-go fact; everywhere else it trails.
+function weatherLine(day, forecast) {
+  const w = forecast?.[day.date]
+  if (!w) return null
+  const word = weatherWord(w.code)
+  if (!word) return null
+  const temp = `${Math.round(w.tmax)}°`
+  const wind = `wind ${Math.round(w.wind)} km/h`
+  return day.date === '2026-09-03'
+    ? `${wind[0].toUpperCase()}${wind.slice(1)} · ${word} · ${temp}`
+    : `${word[0].toUpperCase()}${word.slice(1)} · ${temp} · ${wind}`
 }
 
 // The azulejo tile from the brief, as a border for the hero. Decoration only —
@@ -423,6 +456,9 @@ function App() {
   // design — it holds the tapped event object, and anything that would stale it
   // (navigation, Edit mode) closes it first.
   const [sheet, setSheet] = useState(null)
+  // Forecast maps by city, filled once per session per city; null (failed or
+  // no coords) renders nothing.
+  const [forecasts, setForecasts] = useState({})
 
   const didScrollRef = useRef(false)
   const inFlightRef = useRef(false)
@@ -475,6 +511,23 @@ function App() {
     const id = setInterval(() => setTodayKey(localDateKey()), 60000)
     return () => clearInterval(id)
   }, [])
+
+  // One forecast per city the itinerary actually visits. The data layer caches
+  // (failures included), so re-runs after a refetch cost nothing.
+  useEffect(() => {
+    if (!data) return
+    const cities = [...new Set(data.itinerary.map((day) => day.city))]
+    let cancelled = false
+    cities.forEach((city) => {
+      getCityForecast(city).then((forecast) => {
+        if (cancelled || !forecast) return
+        setForecasts((prev) => ({ ...prev, [city]: forecast }))
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [data])
 
   // Two phones edit the same trip and nothing pushes changes, so pick them up
   // whenever this one comes back to the foreground. `focus` and
@@ -1036,6 +1089,14 @@ function App() {
                 )
               )}
             </div>
+            {/* Present only when the day is inside the forecast window and the
+                fetch succeeded; in every other case nothing renders — no error,
+                no spinner, no placeholder. */}
+            {weatherLine(day, forecasts[day.city]) && (
+              <p className="weather">
+                {weatherLine(day, forecasts[day.city])}
+              </p>
+            )}
           </div>
           {isArranging ? (
             // Only this day's events are inside the SortableContext, so there is
@@ -1092,6 +1153,12 @@ function App() {
               const isOpen = event.status === 'open'
               const options = event.options ?? []
               const hasOptions = options.length > 0
+              const optionsMeta = event.options_meta ?? {}
+              // One option with context switches the whole set from chips to
+              // stacked rows — a mixed row of tall and short pills reads as
+              // two different controls, and the long real names strain chips
+              // anyway.
+              const richOptions = options.some((o) => optionsMeta[o])
               // The orphan rule: a chosen_option that matches no current option
               // (a v1-side rename, say) renders as confirmed-without-choice —
               // options listed normally, ✓ kept, nothing invented.
@@ -1151,6 +1218,17 @@ function App() {
                 >
                   {isOpen ? 'OPEN' : '✓'}
                 </span>
+                {event.maps_q && (
+                  <a
+                    className="pin"
+                    href={mapsUrl(event.maps_q)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${event.text} in Maps`}
+                  >
+                    ◎
+                  </a>
+                )}
                 {/* A decided event folds its candidates away: the winner is in
                     the title, the rest collapse to one muted line, and + option
                     waits behind a reopen. */}
@@ -1167,25 +1245,57 @@ function App() {
                     Each candidate is now a control: tapping opens the sheet
                     where Choose this lives. */}
                 {!chosen && (hasOptions || isOpen) && (
-                  <ul className="opts">
-                    {options.map((option) => (
-                      <li className="opt-item" key={option}>
-                        <button
-                          type="button"
-                          className="opt opt-tap"
-                          onClick={() =>
-                            setSheet({
-                              date: day.date,
-                              dayLabel: `${day.weekday}, ${shortDate(day.date)}`,
-                              event,
-                              option,
-                            })
-                          }
-                        >
-                          {option}
-                        </button>
-                      </li>
-                    ))}
+                  <ul className={`opts ${richOptions ? 'opts-rows' : ''}`}>
+                    {options.map((option) => {
+                      const openSheet = () =>
+                        setSheet({
+                          date: day.date,
+                          dayLabel: `${day.weekday}, ${shortDate(day.date)}`,
+                          event,
+                          option,
+                        })
+                      const meta = optionsMeta[option]
+
+                      if (richOptions) {
+                        return (
+                          <li className="optrow" key={option}>
+                            <button
+                              type="button"
+                              className="optrow-body"
+                              onClick={openSheet}
+                            >
+                              <span className="optrow-name">{option}</span>
+                              {meta?.meta && (
+                                <span className="opt-meta">{meta.meta}</span>
+                              )}
+                            </button>
+                            {meta?.maps_q && (
+                              <a
+                                className="pin"
+                                href={mapsUrl(meta.maps_q)}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Open ${option} in Maps`}
+                              >
+                                ◎
+                              </a>
+                            )}
+                          </li>
+                        )
+                      }
+
+                      return (
+                        <li className="opt-item" key={option}>
+                          <button
+                            type="button"
+                            className="opt opt-tap"
+                            onClick={openSheet}
+                          >
+                            {option}
+                          </button>
+                        </li>
+                      )
+                    })}
                     <li className="opt-add-row">
                       {addingOptionId === event.id ? (
                         <input
