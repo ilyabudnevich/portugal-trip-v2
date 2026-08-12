@@ -19,17 +19,22 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   addEvent,
   addEventOption,
+  chooseOption,
   commitOptionRemoval,
   deleteEvent,
   fetchTripData,
+  mapsUrl,
+  offerUndo,
   renameEventOption,
+  reopenEvent,
   reorderDayEvents,
   setDayTitle,
+  setEventDecision,
   setEventStatus,
   setEventText,
   stageDelete,
-  subscribePendingDelete,
-  undoPendingDelete,
+  subscribePendingUndo,
+  undoPending,
   writeActivity,
   writeOverlapped,
 } from './lib/tripData.js'
@@ -411,15 +416,31 @@ function App() {
     }),
   )
 
-  // The last staged delete, mirrored from the data layer: { label } while its
+  // The last undoable act, mirrored from the data layer: { label } while its
   // undo window is open, null otherwise. Drives the Undo toast.
   const [pendingUndo, setPendingUndo] = useState(null)
+  // The option sheet: { date, dayLabel, event, option } or null. Transient by
+  // design — it holds the tapped event object, and anything that would stale it
+  // (navigation, Edit mode) closes it first.
+  const [sheet, setSheet] = useState(null)
 
   const didScrollRef = useRef(false)
   const inFlightRef = useRef(false)
   const lastFetchRef = useRef(0)
 
-  useEffect(() => subscribePendingDelete(setPendingUndo), [])
+  useEffect(() => subscribePendingUndo(setPendingUndo), [])
+
+  // Escape closes the sheet. Gated on the sheet being open, so it cannot
+  // collide with the reorder-mode Escape handler — the sheet never opens
+  // inside that mode.
+  useEffect(() => {
+    if (sheet === null) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setSheet(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [sheet])
 
   const runFetch = useCallback(async (isInitial) => {
     if (inFlightRef.current) return
@@ -538,6 +559,7 @@ function App() {
     if (reorderDate !== null) exitReorder()
     cancelAdd()
     cancelAddOption()
+    setSheet(null)
   }
 
   function selectDate(date) {
@@ -576,6 +598,75 @@ function App() {
       await setEventStatus(event.id, next)
     } catch (err) {
       patchEvents(date, setStatus(event.status))
+      setToast(err.message)
+    }
+  }
+
+  // Choose commits immediately — it is non-destructive — and its Undo is a
+  // compensating write that restores the exact prior {status, chosen_option}
+  // pair, offered through the same toast the deletes use. Both directions are
+  // optimistic with the standard revert-and-report on failure.
+  async function chooseEventOption(date, event, option) {
+    const prior = { status: event.status, chosen: event.chosen_option ?? null }
+    const applyChoice = (e) => ({
+      ...e,
+      status: 'confirmed',
+      chosen_option: option,
+    })
+    const applyPrior = (e) => ({
+      ...e,
+      status: prior.status,
+      chosen_option: prior.chosen,
+    })
+
+    setSheet(null)
+    patchEventEverywhere(date, event.id, applyChoice)
+    setToast(null)
+
+    try {
+      await chooseOption(event.id, option)
+    } catch (err) {
+      patchEventEverywhere(date, event.id, applyPrior)
+      setToast(err.message)
+      return
+    }
+
+    offerUndo({
+      label: `${event.text} → ${option}`,
+      undo: async () => {
+        patchEventEverywhere(date, event.id, applyPrior)
+        try {
+          await setEventDecision(event.id, prior.status, prior.chosen)
+        } catch (err) {
+          // The choice stands (its write succeeded); put the render back.
+          patchEventEverywhere(date, event.id, applyChoice)
+          throw err
+        }
+      },
+      onError: setToast,
+    })
+  }
+
+  // Reopening a decided event: one write clears status and winner together and
+  // the full option set is simply rendered again — it never left the row.
+  async function reopenChoice(date, event) {
+    const prior = { status: event.status, chosen: event.chosen_option ?? null }
+
+    patchEventEverywhere(date, event.id, (e) => ({
+      ...e,
+      status: 'open',
+      chosen_option: null,
+    }))
+    setToast(null)
+
+    try {
+      await reopenEvent(event.id)
+    } catch (err) {
+      patchEventEverywhere(date, event.id, (e) => ({
+        ...e,
+        status: prior.status,
+        chosen_option: prior.chosen,
+      }))
       setToast(err.message)
     }
   }
@@ -630,8 +721,17 @@ function App() {
     const remaining = currentOptions.filter((o) => o !== option)
     // Empty stays null, matching what removeEventOption itself stores.
     const value = remaining.length > 0 ? remaining : null
+    // Removing the winner clears the choice — locally here, and in the same
+    // write at commit time (commitOptionRemoval reads the fresh row and
+    // applies the same rule). Undo restores both.
+    const wasChosen = event.chosen_option === option
+    const priorChosen = event.chosen_option ?? null
 
-    patchEventEverywhere(date, event.id, (e) => ({ ...e, options: value }))
+    patchEventEverywhere(date, event.id, (e) => ({
+      ...e,
+      options: value,
+      chosen_option: wasChosen ? null : e.chosen_option,
+    }))
     setToast(null)
 
     stageDelete({
@@ -641,6 +741,7 @@ function App() {
         patchEventEverywhere(date, event.id, (e) => ({
           ...e,
           options: currentOptions,
+          chosen_option: priorChosen,
         })),
       onError: setToast,
     })
@@ -649,6 +750,7 @@ function App() {
   function enterReorder(day) {
     cancelAdd()
     cancelAddOption()
+    setSheet(null)
     setReorderDate(day.date)
     setReorderEvents(day.events)
   }
@@ -736,13 +838,22 @@ function App() {
         const saved = await setEventText(event.id, text)
         patchEventEverywhere(date, event.id, (e) => ({ ...e, text: saved }))
       } else {
+        // chosen_option rides along: renaming the winner moves the pointer in
+        // the same write (the data layer's pinned sync rule), so the local
+        // patch mirrors both fields.
+        const wasChosen = event.chosen_option === target.option
         const saved = await renameEventOption(
           event.id,
           event.options,
           target.option,
           text,
+          event.chosen_option ?? null,
         )
-        patchEventEverywhere(date, event.id, (e) => ({ ...e, options: saved }))
+        patchEventEverywhere(date, event.id, (e) => ({
+          ...e,
+          options: saved,
+          chosen_option: wasChosen ? text : e.chosen_option,
+        }))
       }
     } catch (err) {
       setToast(err.message)
@@ -979,42 +1090,100 @@ function App() {
               // a quiet ✓ instead of a second full-strength badge, so a decided
               // event stops competing with an undecided one.
               const isOpen = event.status === 'open'
-              const hasOptions = (event.options ?? []).length > 0
+              const options = event.options ?? []
+              const hasOptions = options.length > 0
+              // The orphan rule: a chosen_option that matches no current option
+              // (a v1-side rename, say) renders as confirmed-without-choice —
+              // options listed normally, ✓ kept, nothing invented.
+              const chosen =
+                event.chosen_option && options.includes(event.chosen_option)
+                  ? event.chosen_option
+                  : null
+              const alsoConsidered = chosen
+                ? options.filter((o) => o !== chosen)
+                : []
+              // Tapping the chip on a decided event reopens it — one verb, one
+              // write, winner and status cleared together. Everything else
+              // keeps the plain toggle.
+              const onChipTap = chosen
+                ? () => reopenChoice(day.date, event)
+                : () => toggleStatus(day.date, event)
 
               return (
               <li
                 className={`event-row ${isOpen ? 'event-open' : ''}`}
                 key={event.id}
               >
-                <span className="event-text">{withTimes(event.text)}</span>{' '}
+                <span className="event-text">
+                  {withTimes(event.text)}
+                  {chosen && (
+                    <>
+                      {' — '}
+                      <span className="ev-winner">{chosen}</span>
+                    </>
+                  )}
+                </span>{' '}
                 <span
                   className={`badge badge-toggle ${isOpen ? 'badge-open' : 'badge-settled'}`}
                   role="button"
                   tabIndex={0}
-                  title={isOpen ? 'Mark this decided' : 'Reopen this decision'}
-                  aria-label={`${event.text} — ${isOpen ? 'open, mark decided' : 'decided, reopen'}`}
-                  onClick={() => toggleStatus(day.date, event)}
+                  title={
+                    chosen
+                      ? 'Reopen this decision'
+                      : isOpen
+                        ? 'Mark this decided'
+                        : 'Reopen this decision'
+                  }
+                  aria-label={`${event.text} — ${
+                    chosen
+                      ? `decided: ${chosen}, reopen`
+                      : isOpen
+                        ? 'open, mark decided'
+                        : 'decided, reopen'
+                  }`}
+                  onClick={onChipTap}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      toggleStatus(day.date, event)
+                      onChipTap()
                     }
                   }}
                 >
                   {isOpen ? 'OPEN' : '✓'}
                 </span>
+                {/* A decided event folds its candidates away: the winner is in
+                    the title, the rest collapse to one muted line, and + option
+                    waits behind a reopen. */}
+                {chosen && alsoConsidered.length > 0 && (
+                  <p className="also">
+                    Also considered · {alsoConsidered.join(' · ')}
+                  </p>
+                )}
                 {/* Candidates are worth offering while the decision is open, or
                     whenever some are already recorded. A confirmed event with
                     none needs nothing. Unchanged by the badge rule above: this
                     is the path by which a plain event grows its first candidate
                     and so earns a badge.
-                    Chips here are text, not controls: choosing one is a verb the
-                    schema has no field for, and removing one is Edit-mode work. */}
-                {(hasOptions || isOpen) && (
+                    Each candidate is now a control: tapping opens the sheet
+                    where Choose this lives. */}
+                {!chosen && (hasOptions || isOpen) && (
                   <ul className="opts">
-                    {(event.options ?? []).map((option) => (
-                      <li className="opt" key={option}>
-                        {option}
+                    {options.map((option) => (
+                      <li className="opt-item" key={option}>
+                        <button
+                          type="button"
+                          className="opt opt-tap"
+                          onClick={() =>
+                            setSheet({
+                              date: day.date,
+                              dayLabel: `${day.weekday}, ${shortDate(day.date)}`,
+                              event,
+                              option,
+                            })
+                          }
+                        >
+                          {option}
+                        </button>
                       </li>
                     ))}
                     <li className="opt-add-row">
@@ -1099,6 +1268,61 @@ function App() {
 
   return (
     <>
+      {/* The option sheet: where Choose this lives. A bottom sheet rather than
+          an inline control so the decision moment gets the option's full
+          context — name, meta line, map — before committing. */}
+      {sheet && (
+        <div
+          className="sheet-scrim"
+          onClick={() => setSheet(null)}
+          role="presentation"
+        >
+          <div
+            className="sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label={sheet.option}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="sheet-kicker">
+              {sheet.event.text} · {sheet.dayLabel}
+            </p>
+            <h3 className="sheet-title">{sheet.option}</h3>
+            {sheet.event.options_meta?.[sheet.option]?.meta && (
+              <p className="sheet-meta">
+                {sheet.event.options_meta[sheet.option].meta}
+              </p>
+            )}
+            <button
+              type="button"
+              className="sheet-btn sheet-btn-primary"
+              onClick={() =>
+                chooseEventOption(sheet.date, sheet.event, sheet.option)
+              }
+            >
+              Choose this
+            </button>
+            {sheet.event.options_meta?.[sheet.option]?.maps_q && (
+              <a
+                className="sheet-btn sheet-btn-ghost"
+                href={mapsUrl(sheet.event.options_meta[sheet.option].maps_q)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Maps
+              </a>
+            )}
+            <button
+              type="button"
+              className="sheet-btn sheet-btn-plain"
+              onClick={() => setSheet(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Errors and the undo window stack rather than compete: a failure
           arriving while a delete is still undoable must not hide the Undo. */}
       {(toast || pendingUndo) && (
@@ -1122,7 +1346,7 @@ function App() {
               <button
                 type="button"
                 className="toast-undo-btn"
-                onClick={undoPendingDelete}
+                onClick={undoPending}
               >
                 Undo
               </button>

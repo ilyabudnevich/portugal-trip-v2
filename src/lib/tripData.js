@@ -71,7 +71,7 @@ export function writeActivity() {
   return {
     epoch: writeEpoch,
     inFlight: writesInFlight,
-    pending: pendingDelete !== null,
+    pending: pendingUndo !== null && pendingUndo.kind === 'delete',
   }
 }
 
@@ -86,75 +86,97 @@ export function writeOverlapped(before) {
     // a staged delete is (or was) awaiting its undo window: the database still
     // holds the row the screen no longer shows, so any snapshot from this span
     // would resurrect it
-    pendingDelete !== null ||
+    (pendingUndo !== null && pendingUndo.kind === 'delete') ||
     before.pending
   )
 }
 
-// ─── Pending-delete manager ─────────────────────────────────────────────────
+// ─── Pending-undo manager ───────────────────────────────────────────────────
 //
-// Deletes are undoable for a short window, and the way that is safe is that
-// nothing is sent: the caller removes the row from its own state, stages the
-// delete here, and the write fires only when the window closes. Undo cancels a
-// write that never happened, so a crash or a closed tab errs on the side of
-// keeping data — the row simply reappears on the next load.
+// One slot holding the most recent undoable act, in one of two kinds:
 //
-// One slot, deliberately. A second staged delete commits the first immediately
-// and takes its place, so "the last thing deleted" is always the thing Undo
-// restores, and the toast never has to enumerate.
+// 'delete' — nothing has been sent. The caller removes the row from its own
+// state, stages the delete here, and the write fires only when the window
+// closes. Undo cancels a write that never happened, so a crash or a closed tab
+// errs on the side of keeping data — the row simply reappears on the next
+// load.
 //
-// Commits are serialised on a promise chain, and every other write waits for
-// that chain (see runWrite): a staged delete always lands before any later
-// write. That ordering is not politeness — a reorder renumbers a day to 1..n
-// computed from state that excludes the staged row, and unique
+// 'action' — the write has already been committed (a choose is non-destructive
+// and commits immediately). The offer is just a standing invitation to run a
+// compensating write; when the window expires there is nothing to do but
+// withdraw it.
+//
+// One slot, deliberately. A new stage or offer supersedes whatever holds it —
+// a delete commits now, an action clears silently — so "the last thing done"
+// is always the thing Undo undoes, and the toast never has to enumerate.
+//
+// Delete commits are serialised on a promise chain, and every other write
+// waits for that chain (see runWrite): a staged delete always lands before any
+// later write. That ordering is not politeness — a reorder renumbers a day to
+// 1..n computed from state that excludes the staged row, and unique
 // (date, sort_order) means landing on the staged row's slot while its delete
-// is still in flight would collide.
+// is still in flight would collide. Action offers make no such claim, so
+// unrelated writes leave them open — there is no pending write to order, and
+// closing the offer early would break the promise the toast just made.
 const UNDO_WINDOW_MS = 5000
 
-let pendingDelete = null
+let pendingUndo = null
 let commitChain = Promise.resolve()
 let inCommit = false
-const pendingDeleteListeners = new Set()
+const pendingUndoListeners = new Set()
 
-function pendingDeleteSnapshot() {
-  return pendingDelete ? { label: pendingDelete.label } : null
+function pendingUndoSnapshot() {
+  return pendingUndo ? { label: pendingUndo.label } : null
 }
 
-function notifyPendingDelete() {
-  const snapshot = pendingDeleteSnapshot()
-  pendingDeleteListeners.forEach((cb) => cb(snapshot))
+function notifyPendingUndo() {
+  const snapshot = pendingUndoSnapshot()
+  pendingUndoListeners.forEach((cb) => cb(snapshot))
 }
 
-// The toast renders off this: `cb` fires with { label } while a delete is
-// undoable and null the moment it commits, is undone, or fails. Called once
-// immediately so a subscriber never starts stale.
-export function subscribePendingDelete(cb) {
-  pendingDeleteListeners.add(cb)
-  cb(pendingDeleteSnapshot())
-  return () => pendingDeleteListeners.delete(cb)
+// The toast renders off this: `cb` fires with { label } while something is
+// undoable and null the moment it commits, expires, is undone, or fails.
+// Called once immediately so a subscriber never starts stale.
+export function subscribePendingUndo(cb) {
+  pendingUndoListeners.add(cb)
+  cb(pendingUndoSnapshot())
+  return () => pendingUndoListeners.delete(cb)
 }
 
-// Empties the slot and queues the commit. The slot is cleared before the commit
-// runs — the commit's own runWrite must see no pending delete, or it would try
-// to flush itself. A failed commit restores the caller's state and reports
-// through its onError; the row was never deleted, so restoring is honest.
-function flushPendingDelete() {
-  if (pendingDelete !== null) {
-    const staged = pendingDelete
-    pendingDelete = null
+// Resolves the slot without undoing: a delete commits, an action offer simply
+// lapses. The slot is cleared before a delete's commit runs — the commit's own
+// runWrite must see an empty slot, or it would try to flush itself.
+// A failed commit restores the caller's state and reports through its onError;
+// the row was never deleted, so restoring is honest.
+function flushPendingUndo() {
+  if (pendingUndo !== null) {
+    const staged = pendingUndo
+    pendingUndo = null
     clearTimeout(staged.timer)
-    notifyPendingDelete()
-    commitChain = commitChain.then(async () => {
-      inCommit = true
-      try {
-        await staged.commit()
-      } catch (err) {
-        staged.restore()
-        staged.onError(err.message)
-      } finally {
-        inCommit = false
-      }
-    })
+    notifyPendingUndo()
+    if (staged.kind === 'delete') {
+      commitChain = commitChain.then(async () => {
+        inCommit = true
+        try {
+          await staged.commit()
+        } catch (err) {
+          staged.restore()
+          staged.onError(err.message)
+        } finally {
+          inCommit = false
+        }
+      })
+    }
+  }
+  return commitChain
+}
+
+// What runWrite calls. Identical to flushPendingUndo except that an action
+// offer is left standing: only a staged delete has a write whose ordering
+// matters.
+function flushStagedDelete() {
+  if (pendingUndo !== null && pendingUndo.kind === 'delete') {
+    return flushPendingUndo()
   }
   return commitChain
 }
@@ -163,31 +185,52 @@ function flushPendingDelete() {
 // in `restore` to put it back — content, position, everything — without a
 // write. `commit` is the ordinary delete write, deferred.
 export function stageDelete({ label, commit, restore, onError }) {
-  flushPendingDelete() // a second delete supersedes: the first commits now
-  const staged = { label, commit, restore, onError }
-  staged.timer = setTimeout(flushPendingDelete, UNDO_WINDOW_MS)
-  pendingDelete = staged
-  notifyPendingDelete()
+  flushPendingUndo() // a second act supersedes: a delete commits, an offer lapses
+  const staged = { kind: 'delete', label, commit, restore, onError }
+  staged.timer = setTimeout(flushPendingUndo, UNDO_WINDOW_MS)
+  pendingUndo = staged
+  notifyPendingUndo()
 }
 
-// No write is ever sent on this path — the delete simply never happens.
-export function undoPendingDelete() {
-  if (pendingDelete === null) return
-  const staged = pendingDelete
-  pendingDelete = null
+// For acts that already committed (choose): `undo` is an async compensating
+// write, fully responsible for its own local-state handling; a rejection is
+// reported through onError.
+export function offerUndo({ label, undo, onError }) {
+  flushPendingUndo()
+  const staged = { kind: 'action', label, undo, onError }
+  staged.timer = setTimeout(flushPendingUndo, UNDO_WINDOW_MS)
+  pendingUndo = staged
+  notifyPendingUndo()
+}
+
+// Undo. For a delete no write is ever sent — the delete simply never happens.
+// For an action the compensating write runs here.
+export async function undoPending() {
+  if (pendingUndo === null) return
+  const staged = pendingUndo
+  pendingUndo = null
   clearTimeout(staged.timer)
-  notifyPendingDelete()
-  staged.restore()
+  notifyPendingUndo()
+  if (staged.kind === 'delete') {
+    staged.restore()
+    return
+  }
+  try {
+    await staged.undo()
+  } catch (err) {
+    staged.onError(err.message)
+  }
 }
 
 async function runWrite(table, buildQuery) {
   if (!supabase) throw new Error(missingEnvMessage)
 
   // Any staged delete lands first (see the manager above). inCommit exempts the
-  // staged delete's own write from waiting on the chain it is part of.
+  // staged delete's own write from waiting on the chain it is part of, and
+  // action offers are left standing — they have no pending write to order.
   // Navigation never triggers this — only writes do — so moving around the app
   // leaves the undo window open.
-  if (!inCommit) await flushPendingDelete()
+  if (!inCommit) await flushStagedDelete()
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS)
@@ -239,6 +282,9 @@ function toEvent(row) {
     text: row.text,
     status: row.status,
     options: row.options,
+    chosen_option: row.chosen_option,
+    options_meta: row.options_meta,
+    maps_q: row.maps_q,
   }
 }
 
@@ -271,9 +317,13 @@ export async function fetchTripData() {
         .abortSignal(signal),
       // `id` is needed to update or delete a single event; `status` now drives
       // the badge directly instead of being inferred from options-presence.
+      // chosen_option / options_meta / maps_q are the additive v2 columns;
+      // v1's own select never names them, so they stay invisible to it.
       supabase
         .from('itinerary_events')
-        .select('id, date, sort_order, text, status, options')
+        .select(
+          'id, date, sort_order, text, status, options, chosen_option, options_meta, maps_q',
+        )
         .order('date')
         .order('sort_order')
         .abortSignal(signal),
@@ -366,6 +416,15 @@ export async function setDayTitle(date, title) {
   return title
 }
 
+// Plain Google Maps search URL — no key, no SDK. Lives here so the iOS port
+// carries the exact same link-building rule.
+export function mapsUrl(query) {
+  return (
+    'https://www.google.com/maps/search/?api=1&query=' +
+    encodeURIComponent(query)
+  )
+}
+
 // ─── Itinerary event writes ─────────────────────────────────────────────────
 // Events are identified by their database-generated bigint id.
 
@@ -373,6 +432,28 @@ export function setEventStatus(id, status) {
   return runWrite('itinerary_events', () =>
     supabase.from('itinerary_events').update({ status }).eq('id', id).select(),
   )
+}
+
+// One decision, one write: status and the winner move together so no failure
+// can strand a chosen_option on an open event. chooseOption and reopenEvent
+// are the two verbs; the general form also serves choose's compensating undo,
+// which must restore whatever pair was there before.
+export function setEventDecision(id, status, chosenOption) {
+  return runWrite('itinerary_events', () =>
+    supabase
+      .from('itinerary_events')
+      .update({ status, chosen_option: chosenOption })
+      .eq('id', id)
+      .select(),
+  )
+}
+
+export function chooseOption(id, option) {
+  return setEventDecision(id, 'confirmed', option)
+}
+
+export function reopenEvent(id) {
+  return setEventDecision(id, 'open', null)
 }
 
 export function deleteEvent(id) {
@@ -489,7 +570,16 @@ export async function setEventText(id, text) {
 // option string, and removeEventOption filters by equality. And an option that is
 // no longer in the array is rejected rather than appended — a filter can safely
 // no-op on a missing value, but a rename has no position to write into.
-export async function renameEventOption(id, currentOptions, option, nextOption) {
+// `chosenOption` is the event's current chosen_option (or null): renaming the
+// option it points at must move the pointer in the same write, or the choice
+// would silently orphan and the "— Winner" render fall back.
+export async function renameEventOption(
+  id,
+  currentOptions,
+  option,
+  nextOption,
+  chosenOption = null,
+) {
   const existing = currentOptions ?? []
   const index = existing.indexOf(option)
 
@@ -501,11 +591,13 @@ export async function renameEventOption(id, currentOptions, option, nextOption) 
   }
 
   const value = existing.map((entry, i) => (i === index ? nextOption : entry))
+  const payload = { options: value }
+  if (chosenOption === option) payload.chosen_option = nextOption
 
   await runWrite('itinerary_events', () =>
     supabase
       .from('itinerary_events')
-      .update({ options: value })
+      .update(payload)
       .eq('id', id)
       .select(),
   )
@@ -558,7 +650,7 @@ export async function commitOptionRemoval(id, option) {
   try {
     result = await supabase
       .from('itinerary_events')
-      .select('options')
+      .select('options, chosen_option')
       .eq('id', id)
       .abortSignal(controller.signal)
   } catch (err) {
@@ -577,17 +669,21 @@ export async function commitOptionRemoval(id, option) {
   const fresh = result.data[0].options ?? []
   if (!fresh.includes(option)) return fresh.length > 0 ? fresh : null
 
-  return removeEventOption(id, fresh, option)
+  return removeEventOption(id, fresh, option, result.data[0].chosen_option)
 }
 
-export async function removeEventOption(id, options, option) {
+// Deleting the chosen option clears the choice in the same write — the pinned
+// sync rule. `chosenOption` is the row's current chosen_option (or null).
+export async function removeEventOption(id, options, option, chosenOption = null) {
   const next = (options ?? []).filter((o) => o !== option)
   const value = next.length > 0 ? next : null
+  const payload = { options: value }
+  if (chosenOption === option) payload.chosen_option = null
 
   await runWrite('itinerary_events', () =>
     supabase
       .from('itinerary_events')
-      .update({ options: value })
+      .update(payload)
       .eq('id', id)
       .select(),
   )
