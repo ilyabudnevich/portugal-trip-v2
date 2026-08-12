@@ -29,12 +29,14 @@ import {
   renameEventOption,
   reopenEvent,
   reorderDayEvents,
+  saveMemory,
   setDayTitle,
   setEventDecision,
   setEventStatus,
   setEventText,
   stageDelete,
   subscribePendingUndo,
+  todayInTripTZ,
   undoPending,
   writeActivity,
   writeOverlapped,
@@ -459,6 +461,11 @@ function App() {
   // Forecast maps by city, filled once per session per city; null (failed or
   // no coords) renders nothing.
   const [forecasts, setForecasts] = useState({})
+  // Ritual fixture state: which day's description is expanded, and the capture
+  // sheet's working copy ({ date, dayLabel, dayIndex, older, younger } | null).
+  const [expandedRitual, setExpandedRitual] = useState(null)
+  const [memSheet, setMemSheet] = useState(null)
+  const [memSaving, setMemSaving] = useState(false)
 
   const didScrollRef = useRef(false)
   const inFlightRef = useRef(false)
@@ -466,17 +473,19 @@ function App() {
 
   useEffect(() => subscribePendingUndo(setPendingUndo), [])
 
-  // Escape closes the sheet. Gated on the sheet being open, so it cannot
-  // collide with the reorder-mode Escape handler — the sheet never opens
+  // Escape closes whichever sheet is open. Gated on one being open, so it
+  // cannot collide with the reorder-mode Escape handler — sheets never open
   // inside that mode.
   useEffect(() => {
-    if (sheet === null) return
+    if (sheet === null && memSheet === null) return
     function onKeyDown(e) {
-      if (e.key === 'Escape') setSheet(null)
+      if (e.key !== 'Escape') return
+      setSheet(null)
+      setMemSheet(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [sheet])
+  }, [sheet, memSheet])
 
   const runFetch = useCallback(async (isInitial) => {
     if (inFlightRef.current) return
@@ -594,6 +603,10 @@ function App() {
   const anchorDate = pickAnchorDate(itinerary, todayKey)
 
   const legs = deriveLegs(itinerary)
+  // Capture is gated on where the trip is, not where the phone is: an evening
+  // in Lisbon is still "tonight" even though it is afternoon in New Jersey.
+  const todayTrip = todayInTripTZ()
+  const tripStarted = itinerary.length > 0 && todayTrip >= itinerary[0].date
   // The selected day is the single source of truth; the active leg is read back
   // from it. Nothing can drift out of sync because there is only one value.
   // A stored date the itinerary no longer contains falls back to the default.
@@ -613,6 +626,8 @@ function App() {
     cancelAdd()
     cancelAddOption()
     setSheet(null)
+    setMemSheet(null)
+    setExpandedRitual(null)
   }
 
   function selectDate(date) {
@@ -698,6 +713,29 @@ function App() {
       },
       onError: setToast,
     })
+  }
+
+  // Save is an upsert: capturing and editing are the same verb, and the row's
+  // existence is what flips the fixture to "✓ captured".
+  async function saveMemorySheet() {
+    if (memSheet === null || memSaving) return
+    const { date, older, younger } = memSheet
+
+    setMemSaving(true)
+    setToast(null)
+
+    try {
+      const saved = await saveMemory(date, older.trim(), younger.trim())
+      setData((prev) => ({
+        ...prev,
+        memories: { ...prev.memories, [date]: saved },
+      }))
+      setMemSheet(null)
+    } catch (err) {
+      setToast(err.message) // sheet stays open; her words are not lost
+    } finally {
+      setMemSaving(false)
+    }
   }
 
   // Reopening a decided event: one write clears status and winner together and
@@ -1154,6 +1192,113 @@ function App() {
               const options = event.options ?? []
               const hasOptions = options.length > 0
               const optionsMeta = event.options_meta ?? {}
+
+              // The nightly ritual renders as a compact fixture, never as the
+              // full sentence — display-only, exactly like the time painter:
+              // the row underneath is an ordinary event and Edit mode still
+              // shows it raw. Pre-trip and future days expand to the
+              // description; today and past trip days capture instead.
+              if (event.text.startsWith('Sunset ritual')) {
+                const mem = data.memories?.[day.date]
+                const capturable = tripStarted && day.date <= todayTrip
+                const isExpanded = expandedRitual === day.date
+                const ritualDesc = event.text.replace(
+                  /^Sunset ritual\s*[—–-]*\s*/,
+                  '',
+                )
+                const openCapture = () =>
+                  setMemSheet({
+                    date: day.date,
+                    dayLabel: `${day.weekday}, ${shortDate(day.date)}`,
+                    dayIndex: daysBetween(itinerary[0].date, day.date) + 1,
+                    older: mem?.quote_older ?? '',
+                    younger: mem?.quote_younger ?? '',
+                  })
+
+                return (
+                  <li className="event-row ritual-row" key={event.id}>
+                    <div className="ritual-head">
+                      <span className="ritual-sun" aria-hidden="true">
+                        ☀
+                      </span>
+                      <span className="ritual-name">Sunset ritual</span>
+                      {/* The universal toggle stays — a shipped verb is a
+                          requirement, fixture or not. */}
+                      <span
+                        className={`badge badge-toggle ${isOpen ? 'badge-open' : 'badge-settled'}`}
+                        role="button"
+                        tabIndex={0}
+                        title={isOpen ? 'Mark this decided' : 'Reopen this decision'}
+                        aria-label={`Sunset ritual — ${isOpen ? 'open, mark decided' : 'decided, reopen'}`}
+                        onClick={() => toggleStatus(day.date, event)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            toggleStatus(day.date, event)
+                          }
+                        }}
+                      >
+                        {isOpen ? 'OPEN' : '✓'}
+                      </span>
+                      {mem ? (
+                        <span className="ritual-state ritual-state-done">
+                          ✓ captured
+                        </span>
+                      ) : capturable ? (
+                        <button
+                          type="button"
+                          className="ritual-state ritual-state-cap"
+                          onClick={openCapture}
+                        >
+                          Capture tonight
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ritual-state ritual-expand"
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded
+                              ? 'Collapse ritual description'
+                              : 'Expand ritual description'
+                          }
+                          onClick={() =>
+                            setExpandedRitual(isExpanded ? null : day.date)
+                          }
+                        >
+                          {isExpanded ? '–' : '+'}
+                        </button>
+                      )}
+                    </div>
+                    {isExpanded && !mem && (
+                      <p className="ritual-desc">{ritualDesc}</p>
+                    )}
+                    {mem && (
+                      <div className="ritual-mem">
+                        {mem.quote_older && (
+                          <p className="quote">
+                            “{mem.quote_older}”
+                            <span className="who"> — age 7</span>
+                          </p>
+                        )}
+                        {mem.quote_younger && (
+                          <p className="quote">
+                            “{mem.quote_younger}”
+                            <span className="who"> — age 5</span>
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          className="mem-edit"
+                          onClick={openCapture}
+                        >
+                          edit
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                )
+              }
               // One option with context switches the whole set from chips to
               // stacked rows — a mixed row of tall and short pills reads as
               // two different controls, and the long real names strain chips
@@ -1426,6 +1571,71 @@ function App() {
               type="button"
               className="sheet-btn sheet-btn-plain"
               onClick={() => setSheet(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* The capture sheet: two quote fields and a photo slot that is honest
+          about not existing yet. Save is disabled until there is a word to
+          keep. */}
+      {memSheet && (
+        <div
+          className="sheet-scrim"
+          onClick={() => setMemSheet(null)}
+          role="presentation"
+        >
+          <div
+            className="sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sunset ritual capture"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="sheet-kicker">
+              Sunset ritual · Day {memSheet.dayIndex} · {memSheet.dayLabel}
+            </p>
+            <h3 className="sheet-title">One thing she loved today</h3>
+            <label className="field">
+              <span>Age 7</span>
+              <input
+                value={memSheet.older}
+                placeholder="her words, verbatim"
+                onChange={(e) =>
+                  setMemSheet((prev) => ({ ...prev, older: e.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Age 5</span>
+              <input
+                value={memSheet.younger}
+                placeholder="her words, verbatim"
+                onChange={(e) =>
+                  setMemSheet((prev) => ({ ...prev, younger: e.target.value }))
+                }
+              />
+            </label>
+            <p className="photo-slot">
+              Family selfie — arrives with the native camera
+            </p>
+            <button
+              type="button"
+              className="sheet-btn sheet-btn-primary"
+              disabled={
+                (!memSheet.older.trim() && !memSheet.younger.trim()) ||
+                memSaving
+              }
+              onClick={saveMemorySheet}
+            >
+              Save to Memories
+            </button>
+            <button
+              type="button"
+              className="sheet-btn sheet-btn-plain"
+              onClick={() => setMemSheet(null)}
             >
               Cancel
             </button>

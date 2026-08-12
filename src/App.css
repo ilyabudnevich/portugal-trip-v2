@@ -1460,3 +1460,167 @@
   min-height: 24px;
   vertical-align: middle;
 }
+
+/* ─── Sunset ritual fixture ─────────────────────────────────────────────────
+   The one warm card in the day: the ritual is the same every night, so it
+   renders as a fixture — sun, name, state — and never as the sentence. The
+   sentence lives in the expanded description (and, raw, in Edit mode, where
+   the row is still an ordinary renamable event). */
+.ritual-row {
+  border-color: var(--tram);
+  background: var(--amber-bg);
+}
+
+.ritual-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.ritual-sun {
+  color: var(--amber-ink);
+}
+
+.ritual-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ritual-state {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--label);
+  font-size: 12px;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.ritual-state-done {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.ritual-state-cap {
+  position: relative;
+  color: var(--amber-ink);
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 28px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* 44px reach for the two small controls, expanded invisibly — nothing else
+   shares the card's right edge. */
+.ritual-state-cap::before,
+.ritual-expand::before {
+  content: '';
+  position: absolute;
+  inset: -8px -10px;
+}
+
+.ritual-expand {
+  position: relative;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  min-width: 28px;
+  min-height: 28px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.ritual-desc {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.ritual-mem {
+  margin-top: 6px;
+}
+
+/* Her words, in the display face — the fixture becomes the memory book in
+   place. */
+.quote {
+  margin: 2px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.quote .who {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+.mem-edit {
+  margin-top: 4px;
+  padding: 2px 0;
+  position: relative;
+  border: none;
+  background: none;
+  font-family: var(--label);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cobalt);
+  cursor: pointer;
+}
+
+.mem-edit::before {
+  content: '';
+  position: absolute;
+  inset: -10px -12px;
+}
+
+/* ─── Capture sheet fields ──────────────────────────────────────────────────*/
+.field {
+  display: block;
+  margin-top: 10px;
+}
+
+.field span {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--label);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid var(--mist);
+  border-radius: 9px;
+  font: inherit;
+  /* Same iOS no-zoom floor as .add-input. */
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--paper-raised);
+}
+
+.photo-slot {
+  margin-top: 10px;
+  padding: 13px;
+  border: 1.5px dashed var(--mist);
+  border-radius: 11px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.sheet-btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

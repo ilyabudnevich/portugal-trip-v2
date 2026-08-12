@@ -42,7 +42,7 @@ function requireOneRow(data) {
 // database. Aborting turns that silence into a rejection the callers' existing
 // revert-and-report paths already handle.
 //
-// The read gets a longer leash than a write: it is eight parallel queries, and
+// The read gets a longer leash than a write: it is nine parallel queries, and
 // on poor hotel wifi the slowest one gates the whole page.
 const WRITE_TIMEOUT_MS = 8000
 const READ_TIMEOUT_MS = 12000
@@ -275,6 +275,11 @@ function toItem(row) {
   }
 }
 
+// memories rows -> { 'YYYY-MM-DD': { day_date, quote_older, quote_younger } }
+function toMemoryMap(rows) {
+  return Object.fromEntries(rows.map((row) => [row.day_date, row]))
+}
+
 function toEvent(row) {
   return {
     id: row.id,
@@ -291,7 +296,7 @@ function toEvent(row) {
 export async function fetchTripData() {
   if (!supabase) throw new Error(missingEnvMessage)
 
-  // One controller for all eight queries: if the load stalls, the whole page is
+  // One controller for all nine queries: if the load stalls, the whole page is
   // stuck behind it, so they succeed or fail together. A rejection here lands on
   // App's error + Try again path.
   const controller = new AbortController()
@@ -347,6 +352,10 @@ export async function fetchTripData() {
         .select('group_id, id, name, checked, sort_order')
         .order('sort_order')
         .abortSignal(signal),
+      supabase
+        .from('memories')
+        .select('day_date, quote_older, quote_younger')
+        .abortSignal(signal),
     ])
   } catch (err) {
     if (signal.aborted) throw timeoutError(READ_TIMEOUT_MS)
@@ -366,6 +375,7 @@ export async function fetchTripData() {
     packingItems,
     prepGroups,
     prepItems,
+    memories,
   ] = responses
 
   const results = [
@@ -377,6 +387,7 @@ export async function fetchTripData() {
     ['packing_items', packingItems],
     ['prep_groups', prepGroups],
     ['prep_items', prepItems],
+    ['memories', memories],
   ]
 
   for (const [table, result] of results) {
@@ -397,7 +408,42 @@ export async function fetchTripData() {
     })),
     packingGroups: nestItems(packingGroups.data, packingItems.data),
     prepGroups: nestItems(prepGroups.data, prepItems.data),
+    memories: toMemoryMap(memories.data),
   }
+}
+
+// ─── Memories ───────────────────────────────────────────────────────────────
+// One row per trip day, keyed by date; capture overwrites via upsert. The
+// standalone read exists for the port — the app itself gets memories through
+// fetchTripData's parallel load.
+
+export async function getMemories(signal) {
+  if (!supabase) throw new Error(missingEnvMessage)
+
+  let query = supabase
+    .from('memories')
+    .select('day_date, quote_older, quote_younger')
+  if (signal) query = query.abortSignal(signal)
+
+  const result = await query
+  if (result.error) throw new Error(`memories — ${result.error.message}`)
+  return toMemoryMap(result.data)
+}
+
+// Empty quotes store as null, so "she said nothing tonight" and "not captured
+// yet" stay distinguishable by the row's existence alone.
+export async function saveMemory(dayDate, quoteOlder, quoteYounger) {
+  const rows = await runWrite('memories', () =>
+    supabase
+      .from('memories')
+      .upsert({
+        day_date: dayDate,
+        quote_older: quoteOlder || null,
+        quote_younger: quoteYounger || null,
+      })
+      .select(),
+  )
+  return rows[0]
 }
 
 // ─── Itinerary day writes ───────────────────────────────────────────────────
