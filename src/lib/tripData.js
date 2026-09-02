@@ -548,6 +548,9 @@ export function getCityForecast(city) {
 
 // Plain Google Maps search URL — no key, no SDK. Lives here so the iOS port
 // carries the exact same link-building rule.
+// Dormant by scope cut (Aug 12) — never seeded in this scope;
+// missing-key-renders-nothing keeps these paths invisible. See
+// docs/v2-build-scope-r1-r4.md amendment.
 export function mapsUrl(query) {
   return (
     'https://www.google.com/maps/search/?api=1&query=' +

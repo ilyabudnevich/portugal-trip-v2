@@ -1,3 +1,9 @@
+-- CUT FROM SCOPE Aug 12, 2026 — NEVER RUN THIS FILE.
+-- Owner decision: curated meta/maps context cut; options render
+-- as plain names. Columns options_meta/maps_q stay dormant.
+-- Retained for reference only: a future serverless service could
+-- populate the same columns live.
+
 -- (c) R3 seed — DRAFT · VALUES UNVERIFIED
 -- Do not run until you have confirmed hours / closing days / drive times
 -- against Google. Values are sourced ONLY from docs (before-after-

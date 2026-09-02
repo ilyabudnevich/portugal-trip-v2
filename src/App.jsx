@@ -1342,6 +1342,9 @@ function App() {
               const isOpen = event.status === 'open'
               const options = event.options ?? []
               const hasOptions = options.length > 0
+              // Dormant by scope cut (Aug 12) — never seeded in this scope;
+              // missing-key-renders-nothing keeps these paths invisible. See
+              // docs/v2-build-scope-r1-r4.md amendment.
               const optionsMeta = event.options_meta ?? {}
 
               // The nightly ritual renders as a compact fixture, never as the
@@ -1512,6 +1515,9 @@ function App() {
                 >
                   {isOpen ? 'OPEN' : '✓'}
                 </span>
+                {/* Dormant by scope cut (Aug 12) — never seeded in this
+                    scope; missing-key-renders-nothing keeps these paths
+                    invisible. See docs/v2-build-scope-r1-r4.md amendment. */}
                 {event.maps_q && (
                   <a
                     className="pin"
@@ -1698,6 +1704,9 @@ function App() {
               {sheet.event.text} · {sheet.dayLabel}
             </p>
             <h3 className="sheet-title">{sheet.option}</h3>
+            {/* Dormant by scope cut (Aug 12) — never seeded in this scope;
+                missing-key-renders-nothing keeps these paths invisible. See
+                docs/v2-build-scope-r1-r4.md amendment. */}
             {sheet.event.options_meta?.[sheet.option]?.meta && (
               <p className="sheet-meta">
                 {sheet.event.options_meta[sheet.option].meta}

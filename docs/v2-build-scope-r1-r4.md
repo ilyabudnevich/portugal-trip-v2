@@ -56,3 +56,15 @@ Tapping an option on an open event opens a sheet: option name, its context line,
 ---
 
 **Build order:** R2 first (it's the safety net every later test benefits from), then R1 (largest verb, now testable with safe deletes), then R3 (smallest), then R4 (deadline-bound but independent). Definition of done unchanged from the master: Sep 2, 6 p.m. — one amber decision, resolved in two taps, map one tap away, quotes captured by sunset, nothing permanently deletable by accident.
+
+---
+
+## Amendment — Aug 12, 2026
+
+**R3 is cut to weather only.** Maps link-out and the static meta lines are out: the seed (`docs/sql/seed-options-meta.sql`) is never run, no fallback-pin work, no meta-editing UI in this scope.
+
+The `options_meta` and `maps_q` columns and their render paths remain in place, **dormant** — removing them would churn the frozen data layer and violate additive-only; dead-but-harmless is the intended end state.
+
+**Weather (Open-Meteo, silent-fail) remains shipped and in scope.**
+
+Door explicitly open: September serverless work may populate these columns live with zero render changes.
