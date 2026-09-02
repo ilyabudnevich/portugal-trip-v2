@@ -430,6 +430,16 @@ export async function getMemories(signal) {
   return toMemoryMap(result.data)
 }
 
+// The clear verb: removes the day's row outright, returning the day to
+// "not captured". runWrite gives it the same timeout and requireOneRow guard
+// as every other write — a row already gone (cleared on the other phone)
+// surfaces as "removed on another device" rather than as silent success.
+export function deleteMemory(dayDate) {
+  return runWrite('memories', () =>
+    supabase.from('memories').delete().eq('day_date', dayDate).select(),
+  )
+}
+
 // Empty quotes store as null, so "she said nothing tonight" and "not captured
 // yet" stay distinguishable by the row's existence alone.
 export async function saveMemory(dayDate, quoteOlder, quoteYounger) {

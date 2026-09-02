@@ -23,6 +23,7 @@ import {
   chooseOption,
   commitOptionRemoval,
   deleteEvent,
+  deleteMemory,
   fetchTripData,
   getCityForecast,
   mapsUrl,
@@ -790,16 +791,66 @@ function App() {
     })
   }
 
+  // Edit mode (an existing memory is loaded) with both fields emptied: Save
+  // stays enabled and becomes the clear verb. New-capture mode keeps requiring
+  // at least one field — prior === null keeps this false there.
+  const memClearing =
+    memSheet !== null &&
+    memSheet.prior !== null &&
+    memSheet.older.trim() === '' &&
+    memSheet.younger.trim() === ''
+
   // Save is an upsert: capturing and editing are the same verb, and the row's
-  // existence is what flips the fixture to "✓ captured".
+  // existence is what flips the fixture to "✓ captured". Clearing is the
+  // inverse verb on the same button: the row is deleted and the day returns to
+  // "Capture tonight" — undoable, because her words are the most precious data
+  // in the app. The delete commits immediately, so its Undo is a compensating
+  // saveMemory of the prior quotes, offered through the same toast as choose.
   async function saveMemorySheet() {
     if (memSheet === null || memSaving) return
-    const { date, older, younger } = memSheet
+    const { date, dayIndex, older, younger, prior } = memSheet
 
     setMemSaving(true)
     setToast(null)
 
     try {
+      if (memClearing) {
+        await deleteMemory(date)
+        const dropRow = (prev) => {
+          const next = { ...prev.memories }
+          delete next[date]
+          return { ...prev, memories: next }
+        }
+        setData(dropRow)
+        setMemSheet(null)
+        offerUndo({
+          label: `Day ${dayIndex} memory cleared`,
+          undo: async () => {
+            setData((prev) => ({
+              ...prev,
+              memories: { ...prev.memories, [date]: prior },
+            }))
+            try {
+              const saved = await saveMemory(
+                date,
+                prior.quote_older ?? '',
+                prior.quote_younger ?? '',
+              )
+              setData((prev) => ({
+                ...prev,
+                memories: { ...prev.memories, [date]: saved },
+              }))
+            } catch (err) {
+              // The clear stands (its write succeeded); put the render back.
+              setData(dropRow)
+              throw err
+            }
+          },
+          onError: setToast,
+        })
+        return
+      }
+
       const saved = await saveMemory(date, older.trim(), younger.trim())
       setData((prev) => ({
         ...prev,
@@ -1299,13 +1350,22 @@ function App() {
               // shows it raw. Pre-trip and future days expand to the
               // description; today and past trip days capture instead.
               if (event.text.startsWith('Sunset ritual')) {
-                const mem = data.memories?.[day.date]
+                const memRow = data.memories?.[day.date]
+                // Defensive: a row with both quotes null should not occur
+                // (clearing deletes the row), but if one appears it renders
+                // as not-captured rather than as an empty memory.
+                const mem =
+                  memRow && (memRow.quote_older || memRow.quote_younger)
+                    ? memRow
+                    : null
                 const capturable = tripStarted && day.date <= todayTrip
                 const isExpanded = expandedRitual === day.date
                 const ritualDesc = event.text.replace(
                   /^Sunset ritual\s*[—–-]*\s*/,
                   '',
                 )
+                // `prior` is the loaded row or null — it is what makes the
+                // sheet's edit mode (and the clear verb's undo) possible.
                 const openCapture = () =>
                   setMemSheet({
                     date: day.date,
@@ -1313,6 +1373,7 @@ function App() {
                     dayIndex: daysBetween(itinerary[0].date, day.date) + 1,
                     older: mem?.quote_older ?? '',
                     younger: mem?.quote_younger ?? '',
+                    prior: mem ?? null,
                   })
 
                 return (
@@ -1322,24 +1383,12 @@ function App() {
                         ☀
                       </span>
                       <span className="ritual-name">Sunset ritual</span>
-                      {/* The universal toggle stays — a shipped verb is a
-                          requirement, fixture or not. */}
-                      <span
-                        className={`badge badge-toggle ${isOpen ? 'badge-open' : 'badge-settled'}`}
-                        role="button"
-                        tabIndex={0}
-                        title={isOpen ? 'Mark this decided' : 'Reopen this decision'}
-                        aria-label={`Sunset ritual — ${isOpen ? 'open, mark decided' : 'decided, reopen'}`}
-                        onClick={() => toggleStatus(day.date, event)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            toggleStatus(day.date, event)
-                          }
-                        }}
-                      >
-                        {isOpen ? 'OPEN' : '✓'}
-                      </span>
+                      {/* Exactly one state marker, capture-based — the
+                          open/✓ status chip is gone from ritual browse
+                          rendering (owner decision on use evidence,
+                          overriding the v2-10 "ritual keeps the chip" call).
+                          Display-only: the status column is untouched, and
+                          Edit mode's raw row keeps every verb. */}
                       {mem ? (
                         <span className="ritual-state ritual-state-done">
                           ✓ captured
@@ -1704,10 +1753,13 @@ function App() {
               Sunset ritual · Day {memSheet.dayIndex} · {memSheet.dayLabel}
             </p>
             <h3 className="sheet-title">One thing she loved today</h3>
+            {/* Names, not ages — labels only; the columns underneath stay
+                quote_older / quote_younger. Adriana first. */}
             <label className="field">
-              <span>Age 7</span>
+              <span>Adriana</span>
               <input
                 value={memSheet.older}
+                aria-label="Adriana"
                 placeholder="her words, verbatim"
                 onChange={(e) =>
                   setMemSheet((prev) => ({ ...prev, older: e.target.value }))
@@ -1715,9 +1767,10 @@ function App() {
               />
             </label>
             <label className="field">
-              <span>Age 5</span>
+              <span>Serena</span>
               <input
                 value={memSheet.younger}
+                aria-label="Serena"
                 placeholder="her words, verbatim"
                 onChange={(e) =>
                   setMemSheet((prev) => ({ ...prev, younger: e.target.value }))
@@ -1727,16 +1780,21 @@ function App() {
             <p className="photo-slot">
               Family selfie — arrives with the native camera
             </p>
+            {/* Emptying both fields on a loaded memory relabels Save to the
+                clear verb and keeps it enabled; a fresh capture still needs
+                at least one word before Save wakes up. */}
             <button
               type="button"
               className="sheet-btn sheet-btn-primary"
               disabled={
-                (!memSheet.older.trim() && !memSheet.younger.trim()) ||
-                memSaving
+                memSaving ||
+                (!memClearing &&
+                  !memSheet.older.trim() &&
+                  !memSheet.younger.trim())
               }
               onClick={saveMemorySheet}
             >
-              Save to Memories
+              {memClearing ? 'Clear memory' : 'Save to Memories'}
             </button>
             <button
               type="button"
