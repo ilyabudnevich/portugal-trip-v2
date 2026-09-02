@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import {
   DndContext,
   KeyboardSensor,
@@ -255,6 +256,66 @@ function withTimes(text) {
     )
 }
 
+// ─── Keyboard-aware focus for the inline inputs ─────────────────────────────
+// iOS only raises the keyboard for a focus() that runs inside the tap's own
+// event handler — focusing after React re-renders (autoFocus included) is too
+// late. So the inline-input openers flush the state change synchronously and
+// focus the input while still inside the gesture.
+//
+// The scroll that follows is aimed at the *visual* viewport: the slice of the
+// layout viewport actually on glass once the keyboard is up. A bare
+// scrollIntoView targets the layout viewport and routinely parks the input
+// behind the keyboard. The keyboard announces itself as a visualViewport
+// resize, so the scroll waits for the next one; the timer covers the cases
+// where none comes (keyboard already up, hardware keyboard, desktop).
+
+// Room kept between the input and the visual viewport's bottom edge: enough to
+// clear the fixed tab bar (44px buttons + padding) should the browser hold it
+// above the keyboard, so neither the keyboard nor the bar covers the input.
+const KEYBOARD_CLEARANCE = 84
+const KEYBOARD_SETTLE_MS = 600
+
+function scrollInputVisible(input) {
+  if (document.activeElement !== input) return // she moved on; don't yank
+  const vv = window.visualViewport
+  if (!vv) {
+    input.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return
+  }
+  // The rect is in layout-viewport coordinates; the visual viewport occupies
+  // the slice [offsetTop, offsetTop + height] of them.
+  const rect = input.getBoundingClientRect()
+  const bottomLimit = vv.offsetTop + vv.height - KEYBOARD_CLEARANCE
+  const topLimit = vv.offsetTop + 12
+  let delta = 0
+  if (rect.bottom > bottomLimit) delta = rect.bottom - bottomLimit
+  else if (rect.top < topLimit) delta = rect.top - topLimit
+  if (delta !== 0) window.scrollBy({ top: delta, behavior: 'smooth' })
+}
+
+function focusForKeyboard(input) {
+  if (!input) return
+  // preventScroll: the browser's own scroll is the layout-viewport one this
+  // replaces.
+  input.focus({ preventScroll: true })
+  const vv = window.visualViewport
+  if (!vv) {
+    input.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    return
+  }
+  let settled = false
+  let timer = null
+  const settle = () => {
+    if (settled) return
+    settled = true
+    vv.removeEventListener('resize', settle)
+    clearTimeout(timer)
+    scrollInputVisible(input)
+  }
+  vv.addEventListener('resize', settle)
+  timer = setTimeout(settle, KEYBOARD_SETTLE_MS)
+}
+
 // One event while its day is being arranged: a drag handle, the text, and the
 // candidates that travel with it, each with the × that removes it. Deleting is
 // gated behind this mode: in browse there is nothing sharp to catch a thumb, and
@@ -267,11 +328,13 @@ function withTimes(text) {
 // Escape stops propagation so it reverts this edit rather than reaching the
 // window handler that exits the whole mode.
 function EditableText({ value, label, isEditing, edit, placeholder }) {
+  const inputRef = useRef(null)
+
   if (isEditing) {
     return (
       <input
+        ref={inputRef}
         className="add-input"
-        autoFocus
         value={edit.draft}
         aria-label={label}
         placeholder={placeholder}
@@ -289,7 +352,16 @@ function EditableText({ value, label, isEditing, edit, placeholder }) {
   }
 
   return (
-    <button type="button" className="edit-text" onClick={edit.begin}>
+    <button
+      type="button"
+      className="edit-text"
+      onClick={() => {
+        // flushSync so the input exists before the handler returns — the
+        // focus must happen inside this gesture or iOS keeps the keyboard.
+        flushSync(edit.begin)
+        focusForKeyboard(inputRef.current)
+      }}
+    >
       {value}
     </button>
   )
@@ -467,6 +539,9 @@ function App() {
   const [memSheet, setMemSheet] = useState(null)
   const [memSaving, setMemSaving] = useState(false)
 
+  // The one open add-activity input (addingDate is a single value, so a single
+  // ref suffices) — the + Add activity tap focuses it through this.
+  const addInputRef = useRef(null)
   const didScrollRef = useRef(false)
   const inFlightRef = useRef(false)
   const lastFetchRef = useRef(0)
@@ -1029,7 +1104,32 @@ function App() {
     try {
       const sortOrder = Math.max(0, ...events.map((e) => e.sort_order)) + 1
       const created = await addEvent(date, text, sortOrder)
-      patchEvents(date, (list) => [...list, created])
+      // The ritual fixture keeps the day's last word: a new activity lands
+      // above it, not below. The insert still takes max+1 — collision-free
+      // under unique (date, sort_order) — and the existing reorder machinery
+      // then walks it up past the ritual. If that second step fails the event
+      // still exists, just at the bottom; refetch shows the database's truth.
+      const ritualIndex = events.findIndex((e) =>
+        e.text.startsWith('Sunset ritual'),
+      )
+      if (ritualIndex < 0) {
+        patchEvents(date, (list) => [...list, created])
+      } else {
+        const ordered = [
+          ...events.slice(0, ritualIndex),
+          created,
+          ...events.slice(ritualIndex),
+        ]
+        patchEvents(date, () =>
+          ordered.map((event, i) => ({ ...event, sort_order: i + 1 })),
+        )
+        try {
+          await reorderDayEvents(date, ordered)
+        } catch (err) {
+          setToast(err.message)
+          runFetch(false) // fall back to whatever order the database holds
+        }
+      }
       setDraft('') // input stays open and focused for the next entry
       if (closeAfter) setAddingDate(null)
     } catch (err) {
@@ -1486,8 +1586,8 @@ function App() {
           <div className="add-row">
             {addingDate === day.date ? (
               <input
+                ref={addInputRef}
                 className="add-input"
-                autoFocus
                 value={draft}
                 placeholder="New event"
                 aria-label={`New event on ${day.date}`}
@@ -1506,8 +1606,14 @@ function App() {
                 type="button"
                 className="addrow"
                 onClick={() => {
-                  setAddingDate(day.date)
-                  setDraft('')
+                  // flushSync so the input exists before the handler returns —
+                  // the focus must happen inside this gesture or iOS keeps the
+                  // keyboard down.
+                  flushSync(() => {
+                    setAddingDate(day.date)
+                    setDraft('')
+                  })
+                  focusForKeyboard(addInputRef.current)
                 }}
               >
                 + Add activity
