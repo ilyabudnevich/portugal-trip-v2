@@ -1427,13 +1427,13 @@ function App() {
                         {mem.quote_older && (
                           <p className="quote">
                             “{mem.quote_older}”
-                            <span className="who"> — age 7</span>
+                            <span className="who"> — Adriana</span>
                           </p>
                         )}
                         {mem.quote_younger && (
                           <p className="quote">
                             “{mem.quote_younger}”
-                            <span className="who"> — age 5</span>
+                            <span className="who"> — Serena</span>
                           </p>
                         )}
                         <button
